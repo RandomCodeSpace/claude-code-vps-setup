@@ -1160,6 +1160,24 @@ su - "$DEV_USER" -c 'export PYENV_ROOT="$HOME/.pyenv" && \
 PYTHON_VER=$(su - "$DEV_USER" -c 'export PYENV_ROOT="$HOME/.pyenv" && export PATH="$PYENV_ROOT/bin:$PATH" && eval "$(pyenv init -)" && python --version' 2>/dev/null || echo "3.12")
 print_status "Python ${PYTHON_VER} + ruff, mypy, black, pytest, poetry, pyright installed (via pyenv)"
 
+# ── Miniconda (system-wide at /opt/miniconda3) ──────────
+print_status "Installing Miniconda (system-wide)..."
+MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+curl -fsSL "$MINICONDA_URL" -o /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -u -p /opt/miniconda3
+rm /tmp/miniconda.sh
+
+# Make conda available to all users
+ln -sf /opt/miniconda3/bin/conda /usr/local/bin/conda
+
+# Initialize conda for dev user (adds shell hook to .bashrc)
+su - "$DEV_USER" -c '/opt/miniconda3/bin/conda init bash'
+
+# Disable auto-activate base — user must explicitly activate envs
+su - "$DEV_USER" -c '/opt/miniconda3/bin/conda config --set auto_activate_base false'
+
+print_status "Miniconda installed at /opt/miniconda3 (auto_activate_base=false)"
+
 # ── Common CLI tools for Claude Code ────────────────────
 # These help Claude Code work more effectively
 apt install -y \
