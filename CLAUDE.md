@@ -21,9 +21,10 @@ Hostinger VPS (Ubuntu 22.04/24.04)
   ├── setup-github (interactive GitHub/SSH/GPG setup helper)
   └── Dev Toolchains
       ├── Go (latest stable + gopls, dlv, golangci-lint, air)
-      ├── Java 21 Temurin (maven, gradle 8.12)
-      ├── Node.js LTS via nvm (typescript, tsx, pnpm, yarn, eslint, prettier)
-      ├── Python 3.12 via pyenv (ruff, mypy, black, pytest, poetry)
+      ├── Java 21 Temurin (maven, gradle 8.12, jdtls)
+      ├── Node.js LTS via nvm (typescript, tsx, pnpm, yarn, eslint, prettier, ts-language-server)
+      ├── Python 3.12 via pyenv (ruff, mypy, black, pytest, poetry, pyright)
+      ├── Miniconda (system-wide, /opt/miniconda3)
       ├── GitHub CLI (gh)
       └── CLI tools (ripgrep, fd, bat, jq, htop, shellcheck, make, cmake)
 ```
@@ -47,6 +48,8 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 | SSH key | ed25519 (no passphrase) | Access already gated by SSH login to VPS |
 | GPG | Default-on, user-generated | Interactive setup via `setup-github`, signing enabled by default |
 | Git identity | From GitHub (no placeholders) | Set by `setup-github` via `gh api user` |
+| Language servers | gopls, jdtls, pyright, ts-language-server | Full LSP support for all installed languages |
+| Miniconda | System-wide (/opt/miniconda3) | Conda envs without conflicting with pyenv; no auto-activate |
 
 ## Script: secure-vps-setup.sh
 
@@ -63,12 +66,13 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 10. **ssh-agent** — auto-starts in `.bashrc`, persists across tmux panes via `~/.ssh/agent-env`
 11. **gpg-agent** — 8-hour cache, tty pinentry, `GPG_TTY` exported in `.bashrc`
 12. **Go** — latest stable + gopls, delve, golangci-lint, air
-13. **Java 21** — Temurin JDK + Maven + Gradle 8.12
-14. **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier
-15. **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry, ipython
-16. **CLI tools** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, pinentry-tty
-17. **GitHub CLI** — gh
-18. **Claude Code** — native installer, installed for dev user
+13. **Java 21** — Temurin JDK + Maven + Gradle 8.12 + jdtls (Eclipse JDT Language Server)
+14. **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier, typescript-language-server
+15. **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry, ipython, pyright
+16. **Miniconda** — system-wide at /opt/miniconda3, conda init for dev user, auto_activate_base=false
+17. **CLI tools** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, pinentry-tty
+18. **GitHub CLI** — gh
+19. **Claude Code** — native installer, installed for dev user
 
 ### Upgrade-by-Rerun
 Script is safe to rerun and **updates everything on rerun**:
@@ -218,6 +222,9 @@ Optimized for Termius mobile:
 | Package manifest | `/var/lib/vps-setup/installed-packages.manifest` | Packages installed by setup |
 | Pre-existing packages | `/var/lib/vps-setup/pre-existing-packages.list` | Packages before first run |
 | Manifest metadata | `/var/lib/vps-setup/manifest-meta.txt` | Versions, date, user |
+| jdtls | `/opt/jdtls` | Eclipse JDT Language Server |
+| jdtls launcher | `/usr/local/bin/jdtls` | Launcher script for jdtls |
+| Miniconda | `/opt/miniconda3` | System-wide Miniconda install |
 
 ## Language Version Management
 

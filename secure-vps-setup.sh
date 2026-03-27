@@ -5,7 +5,8 @@
 #   Security  : ClamAV, rkhunter, ufw, fail2ban
 
 #   Terminal  : tmux (mobile-optimized for Termius)
-#   Languages : Go, Java 21, Node.js/TypeScript, Python 3.12
+#   Languages : Go, Java 21, Node.js/TypeScript, Python 3.12, Miniconda
+#   LSP       : gopls, jdtls, pyright, typescript-language-server
 #   Tools     : ripgrep, fd, bat, jq, shellcheck
 #   Dev Tool  : Claude Code (native installer)
 # Tested on: Ubuntu 22.04 / 24.04
@@ -1218,6 +1219,8 @@ GO_VERSION=${GO_VERSION:-unknown}
 GRADLE_VERSION=${GRADLE_VERSION:-unknown}
 NODE_VERSION=${NODE_VER:-unknown}
 PYTHON_VERSION=${PYTHON_VER:-unknown}
+JDTLS_VERSION=${JDTLS_VERSION:-unknown}
+MINICONDA=system-wide
 METAMANIFEST
 print_status "Package manifest written to $MANIFEST_DIR/"
 
@@ -1257,9 +1260,10 @@ echo ""
 echo "  DEV TOOLCHAINS"
 echo "  ─────────────────────────────────────────"
 echo "  Go         : /usr/local/go  (go, gopls, dlv, air)"
-echo "  Java       : Temurin 21     (maven, gradle)"
-echo "  Node.js    : via nvm        (ts, tsx, pnpm, yarn)"
-echo "  Python     : via pyenv 3.12 (ruff, mypy, pytest, poetry)"
+echo "  Java       : Temurin 21     (maven, gradle, jdtls)"
+echo "  Node.js    : via nvm        (ts, tsx, pnpm, yarn, ts-language-server)"
+echo "  Python     : via pyenv 3.12 (ruff, mypy, pytest, poetry, pyright)"
+echo "  Miniconda  : /opt/miniconda3 (auto_activate_base=false)"
 echo "  Extras     : ripgrep, fd, bat, jq, htop, shellcheck"
 echo "  DEV TOOLS"
 echo "  ─────────────────────────────────────────"
@@ -1350,6 +1354,8 @@ echo "  Switch Node        : nvm install 22 && nvm alias default 22"
 echo "  New Go project     : mkdir app && cd app && go mod init app"
 echo "  New TS project     : mkdir app && cd app && pnpm init"
 echo "  New Python project : mkdir app && cd app && poetry init"
+echo "  Conda envs         : conda create -n myenv python=3.12"
+echo "  Activate env       : conda activate myenv"
 echo ""
 echo "  Scan logs          : /var/log/clamav/daily-scan.log"
 echo "  rkhunter logs      : /var/log/rkhunter-weekly.log"
