@@ -1114,10 +1114,11 @@ su - "$DEV_USER" -c 'export PYENV_ROOT="$HOME/.pyenv" && \
         poetry \
         pipenv \
         ipython \
-        virtualenv'
+        virtualenv \
+        pyright'
 
 PYTHON_VER=$(su - "$DEV_USER" -c 'export PYENV_ROOT="$HOME/.pyenv" && export PATH="$PYENV_ROOT/bin:$PATH" && eval "$(pyenv init -)" && python --version' 2>/dev/null || echo "3.12")
-print_status "Python ${PYTHON_VER} + ruff, mypy, black, pytest, poetry installed (via pyenv)"
+print_status "Python ${PYTHON_VER} + ruff, mypy, black, pytest, poetry, pyright installed (via pyenv)"
 
 # ── Common CLI tools for Claude Code ────────────────────
 # These help Claude Code work more effectively
