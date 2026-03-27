@@ -1056,15 +1056,18 @@ if [ -z "$JDTLS_VERSION" ]; then
     print_warning "Could not detect latest jdtls version, using fallback ${JDTLS_VERSION}"
 fi
 JDTLS_TIMESTAMP=$(curl -fsSL "https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/" | grep -oP 'jdt-language-server-\K[0-9]+' | sort -n | tail -1)
-JDTLS_URL="https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_TIMESTAMP}.tar.gz"
-curl -fsSL "$JDTLS_URL" -o /tmp/jdtls.tar.gz
-rm -rf /opt/jdtls
-mkdir -p /opt/jdtls
-tar -xzf /tmp/jdtls.tar.gz -C /opt/jdtls
-rm /tmp/jdtls.tar.gz
+if [ -z "$JDTLS_TIMESTAMP" ]; then
+    print_warning "Could not detect jdtls timestamp for version ${JDTLS_VERSION}, skipping jdtls install"
+else
+    JDTLS_URL="https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_TIMESTAMP}.tar.gz"
+    curl -fsSL "$JDTLS_URL" -o /tmp/jdtls.tar.gz
+    rm -rf /opt/jdtls
+    mkdir -p /opt/jdtls
+    tar -xzf /tmp/jdtls.tar.gz -C /opt/jdtls
+    rm /tmp/jdtls.tar.gz
 
-# Create launcher script
-cat > /usr/local/bin/jdtls << 'JDTLS_LAUNCHER'
+    # Create launcher script
+    cat > /usr/local/bin/jdtls << 'JDTLS_LAUNCHER'
 #!/bin/bash
 # Eclipse JDT Language Server launcher
 JDTLS_HOME="/opt/jdtls"
@@ -1074,7 +1077,6 @@ java \
     -Dosgi.bundles.defaultStartLevel=4 \
     -Declipse.product=org.eclipse.jdt.ls.core.product \
     -Dlog.level=ALL \
-    -noverify \
     -Xmx1G \
     --add-modules=ALL-SYSTEM \
     --add-opens java.base/java.util=ALL-UNNAMED \
@@ -1083,9 +1085,10 @@ java \
     -configuration "$JDTLS_HOME/config_linux" \
     -data "$WORKSPACE"
 JDTLS_LAUNCHER
-chmod +x /usr/local/bin/jdtls
+    chmod +x /usr/local/bin/jdtls
 
-print_status "Eclipse JDT Language Server ${JDTLS_VERSION} installed (/opt/jdtls)"
+    print_status "Eclipse JDT Language Server ${JDTLS_VERSION} installed (/opt/jdtls)"
+fi
 
 # ── Node.js + TypeScript (via nvm for dev user) ────────
 print_status "Installing Node.js + TypeScript..."
@@ -1170,6 +1173,9 @@ rm /tmp/miniconda.sh
 
 # Make conda available to all users
 ln -sf /opt/miniconda3/bin/conda /usr/local/bin/conda
+
+# Clean existing conda init block before re-adding (safe for rerun)
+sed -i '/# >>> conda initialize >>>/,/# <<< conda initialize <<</d' /home/$DEV_USER/.bashrc 2>/dev/null || true
 
 # Initialize conda for dev user (adds shell hook to .bashrc)
 su - "$DEV_USER" -c '/opt/miniconda3/bin/conda init bash'
