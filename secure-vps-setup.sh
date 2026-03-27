@@ -39,6 +39,14 @@ echo ""
 print_status "Updating system packages..."
 apt update -y && apt upgrade -y
 
+# --- Save pre-existing package list (first run only) ---
+MANIFEST_DIR="/var/lib/vps-setup"
+mkdir -p "$MANIFEST_DIR"
+if [ ! -f "$MANIFEST_DIR/pre-existing-packages.list" ]; then
+    dpkg-query -W -f='${Package}\n' | sort > "$MANIFEST_DIR/pre-existing-packages.list"
+    print_status "Saved pre-existing package list to $MANIFEST_DIR/pre-existing-packages.list"
+fi
+
 # ============================================================
 # 0. Create 'dev' user — locked down, no sudo
 # ============================================================
@@ -100,18 +108,16 @@ chmod 600 /home/$DEV_USER/.ssh/config
 chown -R $DEV_USER:$DEV_USER /home/$DEV_USER/.ssh
 print_status "SSH config written for '$DEV_USER' (includes GitHub)"
 
-# Disable strict host key checking for root
-if [ ! -f /root/.ssh/config ]; then
-    mkdir -p /root/.ssh
-    cat > /root/.ssh/config << 'SSHCONF'
+# Disable strict host key checking for root (always update)
+mkdir -p /root/.ssh
+cat > /root/.ssh/config << 'SSHCONF'
 Host *
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     LogLevel ERROR
 SSHCONF
-    chmod 600 /root/.ssh/config
-    print_status "SSH host key checking disabled for root"
-fi
+chmod 600 /root/.ssh/config
+print_status "SSH host key checking disabled for root"
 
 # Give dev user access to common dev ports (no sudo needed for 1024+)
 # Also allow git, curl, wget without sudo
@@ -848,11 +854,23 @@ _cc_completions() {
 complete -F _cc_completions cc
 COMPLETION
 
-# Add .local/bin to dev user's PATH + aliases
-if ! grep -q "# --- Claude Code VPS additions ---" /home/$DEV_USER/.bashrc 2>/dev/null; then
+# --- Legacy bashrc migration (one-time: strip old single-marker format) ---
+_migrate_legacy_bashrc() {
+    local file="/home/$DEV_USER/.bashrc"
+    [ -f "$file" ] || return 0
+    if grep -q '^# --- Claude Code VPS additions ---$' "$file" && \
+       ! grep -q '^# --- Claude Code VPS additions START ---$' "$file"; then
+        sed -i '/^# --- Claude Code VPS additions ---$/,$d' "$file"
+        print_status "Migrated legacy .bashrc format (old markers removed)"
+    fi
+}
+_migrate_legacy_bashrc
+
+# Add .local/bin to dev user's PATH + aliases (delete-then-append for upgrades)
+sed -i '/# --- Claude Code VPS additions START ---/,/# --- Claude Code VPS additions END ---/d' /home/$DEV_USER/.bashrc
 cat >> /home/$DEV_USER/.bashrc << 'BASHRC'
 
-# --- Claude Code VPS additions ---
+# --- Claude Code VPS additions START ---
 export PATH="$HOME/.local/bin:$PATH"
 
 # Claude Code aliases — sessions
@@ -903,23 +921,14 @@ ccyp() {
 if [ -f "$HOME/.local/share/bash-completion/completions/cc" ]; then
     . "$HOME/.local/share/bash-completion/completions/cc"
 fi
-
-# Auto-attach to tmux on SSH login (skip if already in tmux)
-if [ -n "$SSH_CONNECTION" ] && [ -z "$TMUX" ]; then
-    if tmux has-session -t claude 2>/dev/null; then
-        exec tmux attach -t claude
-    else
-        exec tmux new-session -s claude "claude; bash"
-    fi
-fi
+# --- Claude Code VPS additions END ---
 BASHRC
-fi
 
-# ssh-agent auto-start (persists across tmux panes)
-if ! grep -q "# --- SSH Agent ---" /home/$DEV_USER/.bashrc 2>/dev/null; then
+# ssh-agent auto-start (persists across tmux panes) — delete-then-append
+sed -i '/# --- SSH Agent START ---/,/# --- SSH Agent END ---/d' /home/$DEV_USER/.bashrc
 cat >> /home/$DEV_USER/.bashrc << 'SSHAGENT'
 
-# --- SSH Agent ---
+# --- SSH Agent START ---
 SSH_ENV="$HOME/.ssh/agent-env"
 _start_ssh_agent() {
     eval "$(ssh-agent -s)" > /dev/null
@@ -939,37 +948,34 @@ if [ -z "$SSH_AUTH_SOCK" ] || ! ssh-add -l &>/dev/null; then
         _start_ssh_agent
     fi
 fi
+# --- SSH Agent END ---
 SSHAGENT
-fi
 
-# GPG agent config for dev user
+# GPG agent config for dev user (always update)
 mkdir -p /home/$DEV_USER/.gnupg
 chmod 700 /home/$DEV_USER/.gnupg
-
-if [ ! -f /home/$DEV_USER/.gnupg/gpg-agent.conf ]; then
-    cat > /home/$DEV_USER/.gnupg/gpg-agent.conf << 'GPGAGENT'
+cat > /home/$DEV_USER/.gnupg/gpg-agent.conf << 'GPGAGENT'
 default-cache-ttl 28800
 max-cache-ttl 28800
 pinentry-program /usr/bin/pinentry-tty
 GPGAGENT
-    chown $DEV_USER:$DEV_USER /home/$DEV_USER/.gnupg/gpg-agent.conf
-    chmod 600 /home/$DEV_USER/.gnupg/gpg-agent.conf
-    print_status "gpg-agent configured (8-hour cache, tty pinentry)"
-fi
+chown $DEV_USER:$DEV_USER /home/$DEV_USER/.gnupg/gpg-agent.conf
+chmod 600 /home/$DEV_USER/.gnupg/gpg-agent.conf
 chown -R $DEV_USER:$DEV_USER /home/$DEV_USER/.gnupg
+print_status "gpg-agent configured (8-hour cache, tty pinentry)"
 
-if ! grep -q "# --- GPG Agent ---" /home/$DEV_USER/.bashrc 2>/dev/null; then
+sed -i '/# --- GPG Agent START ---/,/# --- GPG Agent END ---/d' /home/$DEV_USER/.bashrc
 cat >> /home/$DEV_USER/.bashrc << 'GPGENV'
 
-# --- GPG Agent ---
+# --- GPG Agent START ---
 export GPG_TTY=$(tty)
+# --- GPG Agent END ---
 GPGENV
-fi
 
 chown -R $DEV_USER:$DEV_USER /home/$DEV_USER/.local
 chown $DEV_USER:$DEV_USER /home/$DEV_USER/.bashrc
 
-print_status "tmux installed — auto-attaches on SSH login, mobile-optimized"
+print_status "tmux installed — mobile-optimized, use 'cc' to start sessions"
 
 # ============================================================
 # 7. Dev Toolchains — Go, Java, TypeScript, Python
@@ -993,15 +999,15 @@ rm -rf /usr/local/go
 tar -C /usr/local -xzf /tmp/go.tar.gz
 rm /tmp/go.tar.gz
 
-# Go env for dev user
-if ! grep -q "# --- Go ---" /home/$DEV_USER/.bashrc 2>/dev/null; then
+# Go env for dev user (delete-then-append for upgrades)
+sed -i '/# --- Go START ---/,/# --- Go END ---/d' /home/$DEV_USER/.bashrc
 cat >> /home/$DEV_USER/.bashrc << 'GOENV'
 
-# --- Go ---
+# --- Go START ---
 export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
 export GOPATH="$HOME/go"
+# --- Go END ---
 GOENV
-fi
 
 # Install common Go tools as dev user
 su - "$DEV_USER" -c 'export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH" && export GOPATH="$HOME/go" && \
@@ -1022,28 +1028,29 @@ apt install -y temurin-21-jdk
 apt install -y maven
 GRADLE_VERSION="8.12"
 curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
+# Clean up old Gradle versions before extracting new
+find /opt -maxdepth 1 -name 'gradle-*' -type d \
+    -not -name "gradle-${GRADLE_VERSION}" -exec rm -rf {} + 2>/dev/null || true
 unzip -qo /tmp/gradle.zip -d /opt
 ln -sf "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle
 rm /tmp/gradle.zip
 
-if ! grep -q "# --- Java ---" /home/$DEV_USER/.bashrc 2>/dev/null; then
+sed -i '/# --- Java START ---/,/# --- Java END ---/d' /home/$DEV_USER/.bashrc
 cat >> /home/$DEV_USER/.bashrc << 'JAVAENV'
 
-# --- Java ---
+# --- Java START ---
 export JAVA_HOME="/usr/lib/jvm/temurin-21-jdk-amd64"
 export PATH="$JAVA_HOME/bin:$PATH"
+# --- Java END ---
 JAVAENV
-fi
 
 print_status "Java 21 (Temurin) + Maven + Gradle ${GRADLE_VERSION} installed"
 
 # ── Node.js + TypeScript (via nvm for dev user) ────────
 print_status "Installing Node.js + TypeScript..."
 
-# Install nvm for dev user (not root)
-if [ ! -d "/home/$DEV_USER/.nvm" ]; then
-    su - "$DEV_USER" -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash'
-fi
+# Install/update nvm for dev user (installer is idempotent)
+su - "$DEV_USER" -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash'
 
 # Install latest LTS Node + global packages
 su - "$DEV_USER" -c 'export NVM_DIR="$HOME/.nvm" && \
@@ -1070,22 +1077,24 @@ apt install -y python3 python3-pip python3-venv python3-dev \
     libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
     liblzma-dev zlib1g-dev
 
-# Install pyenv for dev user
-if [ ! -d "/home/$DEV_USER/.pyenv" ]; then
+# Install or update pyenv for dev user
+if [ -d "/home/$DEV_USER/.pyenv" ]; then
+    su - "$DEV_USER" -c 'export PYENV_ROOT="$HOME/.pyenv" && export PATH="$PYENV_ROOT/bin:$PATH" && pyenv update' || true
+else
     su - "$DEV_USER" -c 'curl -fsSL https://pyenv.run | bash'
 fi
 
-if ! grep -q "# --- Python (pyenv) ---" /home/$DEV_USER/.bashrc 2>/dev/null; then
+sed -i '/# --- Python START ---/,/# --- Python END ---/d' /home/$DEV_USER/.bashrc
 cat >> /home/$DEV_USER/.bashrc << 'PYENV'
 
-# --- Python (pyenv) ---
+# --- Python START ---
 export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
 if command -v pyenv &>/dev/null; then
     eval "$(pyenv init -)"
 fi
+# --- Python END ---
 PYENV
-fi
 
 # Install latest Python 3.12 via pyenv + global tools
 su - "$DEV_USER" -c 'export PYENV_ROOT="$HOME/.pyenv" && \
@@ -1121,21 +1130,36 @@ apt install -y \
     inotify-tools \
     pinentry-tty
 
-# ── GitHub CLI (gh) ─────────────────────────────────────
-if ! command -v gh &>/dev/null; then
-    print_status "Installing GitHub CLI..."
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
-    apt update -y
-    apt install -y gh
-fi
+# ── GitHub CLI (gh) — always add repo + install/upgrade ──
+print_status "Installing/updating GitHub CLI..."
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+apt update -y
+apt install -y gh
 print_status "GitHub CLI (gh) installed"
 
 # Fix ownership of everything in dev home
 chown -R $DEV_USER:$DEV_USER /home/$DEV_USER
 
 print_status "All dev toolchains installed"
+
+# --- Write package manifest ---
+CURRENT_PKGS=$(mktemp)
+dpkg-query -W -f='${Package}\n' | sort > "$CURRENT_PKGS"
+comm -13 "$MANIFEST_DIR/pre-existing-packages.list" "$CURRENT_PKGS" > "$MANIFEST_DIR/installed-packages.manifest"
+rm -f "$CURRENT_PKGS"
+
+# Save metadata
+cat > "$MANIFEST_DIR/manifest-meta.txt" << METAMANIFEST
+DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+USER=$DEV_USER
+GO_VERSION=${GO_VERSION:-unknown}
+GRADLE_VERSION=${GRADLE_VERSION:-unknown}
+NODE_VERSION=${NODE_VER:-unknown}
+PYTHON_VERSION=${PYTHON_VER:-unknown}
+METAMANIFEST
+print_status "Package manifest written to $MANIFEST_DIR/"
 
 # ============================================================
 # 8. Claude Code - AI Coding Assistant (installed for 'dev')
@@ -1179,8 +1203,8 @@ echo "  Python     : via pyenv 3.12 (ruff, mypy, pytest, poetry)"
 echo "  Extras     : ripgrep, fd, bat, jq, htop, shellcheck"
 echo "  DEV TOOLS"
 echo "  ─────────────────────────────────────────"
-echo "  tmux         : Auto-attaches on SSH login"
-echo "  Claude Code  : Auto-launches inside tmux"
+echo "  tmux         : Mobile-optimized, use 'cc' to start"
+echo "  Claude Code  : Installed for dev user"
 echo ""
 echo "  CLAUDE SESSION MANAGER (cc):"
 echo "  ─────────────────────────────────────────"
@@ -1218,13 +1242,16 @@ echo ""
 echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  NEXT STEPS (run these manually):"
 echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  1. Switch to dev user (tmux auto-starts + claude launches):"
+echo "  1. Switch to dev user:"
 echo "     su - dev"
 echo ""
-echo "  2. First time only - authenticate Claude Code:"
-echo "     (claude launches automatically, follow browser prompts)"
+echo "  2. Start a Claude Code session:"
+echo "     cc"
 echo ""
-echo "  3. Set up GitHub, SSH & GPG:"
+echo "  3. First time only - authenticate Claude Code:"
+echo "     (follow browser prompts)"
+echo ""
+echo "  4. Set up GitHub, SSH & GPG:"
 echo "     setup-github"
 echo "     (GitHub auth → git identity → SSH key → GPG signing)"
 echo ""

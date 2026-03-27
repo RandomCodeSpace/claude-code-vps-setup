@@ -10,8 +10,8 @@ Developer (Termius iOS/Windows)
   ↓ SSH (port 22, protected by fail2ban)
 Hostinger VPS (Ubuntu 22.04/24.04)
   ├── User: dev (no sudo, locked down)
-  ├── tmux (auto-attaches on login, mobile-optimized)
-  │   └── cc session manager (launches claude automatically)
+  ├── tmux (mobile-optimized)
+  │   └── cc session manager (launch claude with 'cc')
   ├── Claude Code (native installer, runs as dev)
   ├── Security
   │   ├── ClamAV (antivirus, daily scans)
@@ -37,7 +37,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 | Antivirus | ClamAV + rkhunter | Free, open source, no paid tiers, no telemetry |
 | Firewall | ufw + fail2ban | Free, built into Ubuntu |
 | Networking | Direct SSH (port 22) | Tailscale removed — excess for personal dev env |
-| Terminal | tmux | Session persistence for mobile, auto-attach on SSH |
+| Terminal | tmux | Session persistence for mobile, start with `cc` |
 | Docker | NOT installed | User preference — explicitly excluded |
 | Tailscale | NOT installed | Removed — unnecessary for personal dev |
 | Node.js | nvm (not system) | Version switching without sudo |
@@ -70,15 +70,20 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 17. **GitHub CLI** — gh
 18. **Claude Code** — native installer, installed for dev user
 
-### Idempotency
-Script is safe to rerun:
-- All `.bashrc` appends are guarded with `grep -q` checks
-- nvm skips if `~/.nvm` exists
-- pyenv skips if `~/.pyenv` exists
-- `pyenv install -s` skips if version already installed
+### Upgrade-by-Rerun
+Script is safe to rerun and **updates everything on rerun**:
+- All `.bashrc` blocks use `START`/`END` markers — `sed` deletes then re-appends fresh
+- Legacy single-marker `.bashrc` format auto-migrates on first rerun
+- nvm installer is idempotent — always runs to pick up updates
+- pyenv runs `pyenv update` if already installed, fresh install otherwise
+- GitHub CLI repo is always added — `apt install` handles upgrades
+- Root SSH config and gpg-agent.conf are always overwritten
+- Old Gradle versions are cleaned up before extracting new
+- `pyenv install -s` skips if Python version already installed
 - GPG key imports use `--yes` flag for silent overwrite
 - User creation checks `id` before creating
 - UFW silently ignores duplicate rules
+- Package manifest saved to `/var/lib/vps-setup/` for reset script
 
 ### Run It
 ```bash
@@ -88,16 +93,18 @@ sudo bash secure-vps-setup.sh
 
 ### Post-Install Steps
 ```bash
-# 1. Switch to dev user (tmux auto-starts + claude launches)
+# 1. Switch to dev user
 su - dev
 
-# 2. Authenticate Claude Code (first time only)
-# Claude launches automatically — follow browser prompts
+# 2. Start a Claude Code session
+cc
 
-# 3. Set up GitHub, SSH & GPG (interactive — handles gh auth, SSH key upload, GPG)
+# 3. Authenticate Claude Code (first time only — follow browser prompts)
+
+# 4. Set up GitHub, SSH & GPG (interactive — handles gh auth, SSH key upload, GPG)
 setup-github
 
-# 4. (Optional) Disable root SSH once dev access confirmed
+# 5. (Optional) Disable root SSH once dev access confirmed
 sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 sudo systemctl restart sshd
 ```
@@ -185,13 +192,14 @@ Optimized for Termius mobile:
 - **50k line scrollback** — Claude Code is verbose
 - **Aggressive resize** — auto-adjusts between phone and desktop
 - **High contrast status bar** — readable on small screens
-- **Auto-attach on SSH** — login as dev → lands in tmux → claude running
+- **No forced auto-attach** — SSH gives a plain shell, use `cc` to start tmux+Claude
 
 ## File Locations
 
 | File | Location | Purpose |
 |------|----------|---------|
-| Setup script | `./secure-vps-setup.sh` | Main installer |
+| Setup script | `./secure-vps-setup.sh` | Main installer (safe to rerun for upgrades) |
+| Reset script | `./reset-vps-setup.sh` | Uninstall everything |
 | Session manager | `/home/dev/.local/bin/cc` | Claude session management |
 | tmux config | `/home/dev/.tmux.conf` | Mobile-optimized tmux |
 | SSH keypair | `/home/dev/.ssh/id_ed25519` | Dev user's ed25519 key (for GitHub) |
@@ -207,6 +215,9 @@ Optimized for Termius mobile:
 | rkhunter log | `/var/log/rkhunter-weekly.log` | Weekly scan results |
 | fail2ban config | `/etc/fail2ban/jail.local` | SSH protection rules |
 | Tab completion | `/home/dev/.local/share/bash-completion/completions/cc` | cc autocomplete |
+| Package manifest | `/var/lib/vps-setup/installed-packages.manifest` | Packages installed by setup |
+| Pre-existing packages | `/var/lib/vps-setup/pre-existing-packages.list` | Packages before first run |
+| Manifest metadata | `/var/lib/vps-setup/manifest-meta.txt` | Versions, date, user |
 
 ## Language Version Management
 
@@ -249,6 +260,22 @@ sudo fail2ban-client set sshd unbanip <IP>
 # Scan logs
 cat /var/log/clamav/daily-scan.log
 cat /var/log/rkhunter-weekly.log
+```
+
+## Reset / Uninstall
+
+```bash
+# Full reset — removes everything the setup script installed
+sudo bash reset-vps-setup.sh
+
+# What it does:
+# - Prompts before proceeding (shows what will be removed)
+# - Optionally deletes the dev user (asked separately)
+# - Removes: Claude Code, Go, Gradle, nvm, pyenv, cc, setup-github
+# - Removes: tmux config, SSH/GPG config, cron jobs
+# - Disables: ufw, fail2ban, clamav
+# - Purges apt packages from manifest (if available)
+# - Cleans up apt repos (adoptium, github-cli)
 ```
 
 ## Typical Workflows
