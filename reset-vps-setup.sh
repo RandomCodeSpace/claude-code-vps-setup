@@ -38,6 +38,8 @@ echo "  - Claude Code binary and config"
 echo "  - Bashrc marker blocks added by setup"
 echo "  - Go toolchain (/usr/local/go, ~/go)"
 echo "  - Gradle (/opt/gradle-*)"
+echo "  - jdtls (/opt/jdtls)"
+echo "  - Miniconda (/opt/miniconda3)"
 echo "  - nvm (~/.nvm)"
 echo "  - pyenv (~/.pyenv)"
 echo "  - cc session manager + setup-github"
@@ -120,6 +122,13 @@ rm -rf /opt/gradle-* 2>/dev/null || true
 rm -f /usr/local/bin/gradle 2>/dev/null || true
 
 # ============================================================
+# 6b. jdtls
+# ============================================================
+print_status "Removing jdtls..."
+rm -rf /opt/jdtls 2>/dev/null || true
+rm -f /usr/local/bin/jdtls 2>/dev/null || true
+
+# ============================================================
 # 7. nvm
 # ============================================================
 print_status "Removing nvm..."
@@ -133,6 +142,17 @@ fi
 print_status "Removing pyenv..."
 if [ -d "$DEV_HOME" ]; then
     rm -rf "$DEV_HOME/.pyenv" 2>/dev/null || true
+fi
+
+# ============================================================
+# 8b. Miniconda
+# ============================================================
+print_status "Removing Miniconda..."
+rm -rf /opt/miniconda3 2>/dev/null || true
+rm -f /usr/local/bin/conda 2>/dev/null || true
+# Remove conda init block from .bashrc
+if [ -f "$DEV_HOME/.bashrc" ]; then
+    sed -i '/# >>> conda initialize >>>/,/# <<< conda initialize <<</d' "$DEV_HOME/.bashrc" 2>/dev/null || true
 fi
 
 # ============================================================
