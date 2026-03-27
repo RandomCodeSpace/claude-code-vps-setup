@@ -1062,11 +1062,12 @@ su - "$DEV_USER" -c 'export NVM_DIR="$HOME/.nvm" && \
     @types/node \
     nodemon \
     pnpm \
-    yarn'
+    yarn \
+    typescript-language-server'
 
 # Get installed Node version for display
 NODE_VER=$(su - "$DEV_USER" -c 'export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && node --version' 2>/dev/null || echo "LTS")
-print_status "Node.js ${NODE_VER} + TypeScript + pnpm + yarn installed (via nvm)"
+print_status "Node.js ${NODE_VER} + TypeScript + pnpm + yarn + ts-language-server installed (via nvm)"
 
 # ── Python (system + pyenv for version management) ─────
 print_status "Installing Python toolchain..."
