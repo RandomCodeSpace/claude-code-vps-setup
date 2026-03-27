@@ -38,7 +38,6 @@ echo "  - Claude Code binary and config"
 echo "  - Bashrc marker blocks added by setup"
 echo "  - Go toolchain (/usr/local/go, ~/go)"
 echo "  - Gradle (/opt/gradle-*)"
-echo "  - jdtls (/opt/jdtls)"
 echo "  - Miniconda (/opt/miniconda3)"
 echo "  - nvm (~/.nvm)"
 echo "  - pyenv (~/.pyenv)"
@@ -120,13 +119,6 @@ fi
 print_status "Removing Gradle..."
 rm -rf /opt/gradle-* 2>/dev/null || true
 rm -f /usr/local/bin/gradle 2>/dev/null || true
-
-# ============================================================
-# 6b. jdtls
-# ============================================================
-print_status "Removing jdtls..."
-rm -rf /opt/jdtls 2>/dev/null || true
-rm -f /usr/local/bin/jdtls 2>/dev/null || true
 
 # ============================================================
 # 7. nvm

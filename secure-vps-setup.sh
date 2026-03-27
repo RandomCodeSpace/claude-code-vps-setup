@@ -6,7 +6,7 @@
 
 #   Terminal  : tmux (mobile-optimized for Termius)
 #   Languages : Go, Java 21, Node.js/TypeScript, Python 3.12, Miniconda
-#   LSP       : gopls, jdtls, pyright, typescript-language-server
+#   LSP       : gopls, pyright, typescript-language-server
 #   Tools     : ripgrep, fd, bat, jq, shellcheck
 #   Dev Tool  : Claude Code (native installer)
 # Tested on: Ubuntu 22.04 / 24.04
@@ -1047,49 +1047,6 @@ JAVAENV
 
 print_status "Java 21 (Temurin) + Maven + Gradle ${GRADLE_VERSION} installed"
 
-# ── Eclipse JDT Language Server (jdtls) ──────────────────
-print_status "Installing Eclipse JDT Language Server (jdtls)..."
-JDTLS_VERSION=$(curl -fsSL "https://download.eclipse.org/jdtls/milestones/" | grep -oP 'href="\K[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1)
-if [ -z "$JDTLS_VERSION" ]; then
-    # Fallback version if scraping fails
-    JDTLS_VERSION="1.43.0"
-    print_warning "Could not detect latest jdtls version, using fallback ${JDTLS_VERSION}"
-fi
-JDTLS_TIMESTAMP=$(curl -fsSL "https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/" | grep -oP 'jdt-language-server-\K[0-9]+' | sort -n | tail -1)
-if [ -z "$JDTLS_TIMESTAMP" ]; then
-    print_warning "Could not detect jdtls timestamp for version ${JDTLS_VERSION}, skipping jdtls install"
-else
-    JDTLS_URL="https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_TIMESTAMP}.tar.gz"
-    curl -fsSL "$JDTLS_URL" -o /tmp/jdtls.tar.gz
-    rm -rf /opt/jdtls
-    mkdir -p /opt/jdtls
-    tar -xzf /tmp/jdtls.tar.gz -C /opt/jdtls
-    rm /tmp/jdtls.tar.gz
-
-    # Create launcher script
-    cat > /usr/local/bin/jdtls << 'JDTLS_LAUNCHER'
-#!/bin/bash
-# Eclipse JDT Language Server launcher
-JDTLS_HOME="/opt/jdtls"
-WORKSPACE="${1:-$HOME/.cache/jdtls-workspace}"
-java \
-    -Declipse.application=org.eclipse.jdt.ls.core.id1 \
-    -Dosgi.bundles.defaultStartLevel=4 \
-    -Declipse.product=org.eclipse.jdt.ls.core.product \
-    -Dlog.level=ALL \
-    -Xmx1G \
-    --add-modules=ALL-SYSTEM \
-    --add-opens java.base/java.util=ALL-UNNAMED \
-    --add-opens java.base/java.lang=ALL-UNNAMED \
-    -jar "$JDTLS_HOME"/plugins/org.eclipse.equinox.launcher_*.jar \
-    -configuration "$JDTLS_HOME/config_linux" \
-    -data "$WORKSPACE"
-JDTLS_LAUNCHER
-    chmod +x /usr/local/bin/jdtls
-
-    print_status "Eclipse JDT Language Server ${JDTLS_VERSION} installed (/opt/jdtls)"
-fi
-
 # ── Node.js + TypeScript (via nvm for dev user) ────────
 print_status "Installing Node.js + TypeScript..."
 
@@ -1225,7 +1182,6 @@ GO_VERSION=${GO_VERSION:-unknown}
 GRADLE_VERSION=${GRADLE_VERSION:-unknown}
 NODE_VERSION=${NODE_VER:-unknown}
 PYTHON_VERSION=${PYTHON_VER:-unknown}
-JDTLS_VERSION=${JDTLS_VERSION:-unknown}
 MINICONDA=system-wide
 METAMANIFEST
 print_status "Package manifest written to $MANIFEST_DIR/"
@@ -1266,7 +1222,7 @@ echo ""
 echo "  DEV TOOLCHAINS"
 echo "  ─────────────────────────────────────────"
 echo "  Go         : /usr/local/go  (go, gopls, dlv, air)"
-echo "  Java       : Temurin 21     (maven, gradle, jdtls)"
+echo "  Java       : Temurin 21     (maven, gradle)"
 echo "  Node.js    : via nvm        (ts, tsx, pnpm, yarn, ts-language-server)"
 echo "  Python     : via pyenv 3.12 (ruff, mypy, pytest, poetry, pyright)"
 echo "  Miniconda  : /opt/miniconda3 (auto_activate_base=false)"
