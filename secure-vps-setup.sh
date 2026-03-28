@@ -255,6 +255,10 @@ set -ga terminal-overrides ",*256col*:Tc"
 set -g set-titles on
 set -g set-titles-string "#S - #(whoami)"
 
+# Direct OSC title escape via hooks (bypasses broken client_termtype detection)
+set-hook -g client-session-changed 'run-shell "printf \"\\033]0;#{session_name} - \$(whoami)\\007\" > #{client_tty}"'
+set-hook -g session-renamed 'run-shell "printf \"\\033]0;#{session_name} - \$(whoami)\\007\" > #{client_tty}"'
+
 # Massive scrollback (Claude Code outputs a LOT)
 set -g history-limit 50000
 
@@ -391,6 +395,8 @@ CC_SESSION_DIR="$HOME/.claude/cc-sessions"
 # Helper: switch or attach depending on whether we're inside tmux
 _cc_go() {
     local target="$1"
+    # Set Termius tab title via OSC 0 escape (bypasses tmux's broken client_termtype detection)
+    printf '\033]0;%s - %s\007' "$target" "$(whoami)"
     if [ -n "$TMUX" ]; then
         tmux switch-client -t "$target"
     else
