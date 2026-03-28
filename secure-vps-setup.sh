@@ -251,6 +251,10 @@ set -s escape-time 1
 set -g default-terminal "screen-256color"
 set -ga terminal-overrides ",*256col*:Tc"
 
+# Set Termius tab title to session name
+set -g set-titles on
+set -g set-titles-string "#S - #(whoami)"
+
 # Massive scrollback (Claude Code outputs a LOT)
 set -g history-limit 50000
 
@@ -1311,6 +1315,7 @@ echo "  cc killall (cka)  Kill ALL sessions"
 echo "  cc new   (cn)     Force new session"
 echo "  cc switch (cs)    Switch between sessions"
 echo "  cc rename <name>  Rename current session"
+echo "  cc forget <name>  Clear saved conversation"
 echo "  cc help           Show all commands"
 echo "  ccp <dir>         Start claude in project dir"
 echo ""
@@ -1321,6 +1326,7 @@ echo "  cc yolo! (ccyf)   Kill + relaunch in YOLO"
 echo "  cc safe  (ccs)    Kill + relaunch in SAFE mode"
 echo "  ccyp <dir>        YOLO claude in project dir"
 echo "  Auto git checkpoint before every YOLO launch"
+echo "  Conversations persist across mode switches"
 echo ""
 echo "  tmux SHORTCUTS:"
 echo "  ─────────────────────────────────────────"

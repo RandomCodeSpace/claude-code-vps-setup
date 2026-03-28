@@ -42,8 +42,8 @@ setup-github
 - **fail2ban** — bans IPs after 3 failed SSH attempts
 
 ### Terminal
-- **tmux** — mobile-optimized (mouse, touch scroll, aggressive resize, 50k scrollback)
-- **`cc` session manager** — Claude Code session management with YOLO mode (use `cc` to start)
+- **tmux** — mobile-optimized (mouse, touch scroll, aggressive resize, 50k scrollback, Termius tab titles)
+- **`cc` session manager** — Claude Code session management with YOLO mode and session persistence (use `cc` to start)
 
 ### Languages & Tools
 - **Go** — latest stable + gopls, delve, golangci-lint, air
@@ -71,6 +71,7 @@ cc killall          Kill all sessions
 cc yolo <name>      Launch in YOLO mode (skip all permission prompts)
 cc yolo! <name>     Kill + relaunch in YOLO mode
 cc safe <name>      Kill + relaunch in safe mode
+cc forget <name>    Clear saved conversation (next launch = fresh)
 cc help             Show all commands
 ```
 

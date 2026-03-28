@@ -10,7 +10,7 @@ Developer (Termius iOS/Windows)
   ↓ SSH (port 22, protected by fail2ban)
 Hostinger VPS (Ubuntu 22.04/24.04)
   ├── User: dev (no sudo, locked down)
-  ├── tmux (mobile-optimized)
+  ├── tmux (mobile-optimized, Termius tab titles)
   │   └── cc session manager (launch claude with 'cc')
   ├── Claude Code (native installer, runs as dev)
   ├── Security
@@ -50,6 +50,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 | Git identity | From GitHub (no placeholders) | Set by `setup-github` via `gh api user` |
 | Language servers | gopls, pyright, ts-language-server | Full LSP support for Go, Python, TypeScript |
 | Miniconda | System-wide (/opt/miniconda3) | Conda envs without conflicting with pyenv; no auto-activate |
+| Session persistence | UUID mapping in ~/.claude/cc-sessions/ | Resume conversations across mode switches (yolo↔safe) |
 
 ## Script: secure-vps-setup.sh
 
@@ -146,6 +147,7 @@ cc new <n>       Force create new session (kills existing)
 cc switch <n>    Switch to another session (inside tmux)
 cc rename <n>    Rename current session
 cc detach           Detach from current session
+cc forget <n>    Clear saved conversation (next launch = fresh)
 cc help             Show all commands
 ```
 
@@ -197,6 +199,7 @@ Optimized for Termius mobile:
 - **Aggressive resize** — auto-adjusts between phone and desktop
 - **High contrast status bar** — readable on small screens
 - **No forced auto-attach** — SSH gives a plain shell, use `cc` to start tmux+Claude
+- **Tab titles** — Termius tabs show session name + username (e.g. "myapp - dev")
 
 ## File Locations
 
@@ -223,6 +226,7 @@ Optimized for Termius mobile:
 | Pre-existing packages | `/var/lib/vps-setup/pre-existing-packages.list` | Packages before first run |
 | Manifest metadata | `/var/lib/vps-setup/manifest-meta.txt` | Versions, date, user |
 | Miniconda | `/opt/miniconda3` | System-wide Miniconda install |
+| Session mappings | `~/.claude/cc-sessions/` | cc session name → Claude session UUID |
 
 ## Language Version Management
 
@@ -306,6 +310,8 @@ ccy myapp
 # Git checkpoint created automatically
 # Claude runs with no permission prompts
 # Rollback if needed: git reset --hard HEAD~1
+# Switch back to safe mode (conversation preserved)
+cc safe myapp
 ```
 
 ### Switch between projects
