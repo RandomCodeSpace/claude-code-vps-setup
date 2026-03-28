@@ -256,6 +256,7 @@ set -g set-titles on
 set -g set-titles-string "#S - #(whoami)"
 
 # Direct OSC title escape via hooks (bypasses broken client_termtype detection)
+set-hook -g client-attached 'run-shell "printf \"\\033]0;#{session_name} - \$(whoami)\\007\" > #{client_tty}"'
 set-hook -g client-session-changed 'run-shell "printf \"\\033]0;#{session_name} - \$(whoami)\\007\" > #{client_tty}"'
 set-hook -g session-renamed 'run-shell "printf \"\\033]0;#{session_name} - \$(whoami)\\007\" > #{client_tty}"'
 
@@ -395,11 +396,15 @@ CC_SESSION_DIR="$HOME/.claude/cc-sessions"
 # Helper: switch or attach depending on whether we're inside tmux
 _cc_go() {
     local target="$1"
-    # Set Termius tab title via OSC 0 escape (bypasses tmux's broken client_termtype detection)
-    printf '\033]0;%s - %s\007' "$target" "$(whoami)"
     if [ -n "$TMUX" ]; then
+        # Inside tmux: write title to the SSH tty (Termius), not the tmux pane
+        local client_tty
+        client_tty=$(tmux display-message -p '#{client_tty}')
+        printf '\033]0;%s - %s\007' "$target" "$(whoami)" > "$client_tty"
         tmux switch-client -t "$target"
     else
+        # Outside tmux: stdout goes directly to Termius
+        printf '\033]0;%s - %s\007' "$target" "$(whoami)"
         tmux attach -t "$target"
     fi
 }
@@ -519,6 +524,7 @@ _cc_kill() {
     fi
     if tmux has-session -t "$target" 2>/dev/null; then
         tmux kill-session -t "$target"
+        rm -f "$CC_SESSION_DIR/$target"
         echo -e "${GREEN}Killed session:${NC} $target"
     else
         echo -e "${RED}Session not found:${NC} $target"
@@ -535,6 +541,7 @@ _cc_killall() {
     fi
     echo -e "${YELLOW}Killing $count session(s)...${NC}"
     tmux kill-server 2>/dev/null
+    rm -f "$CC_SESSION_DIR"/*
     echo -e "${GREEN}All sessions killed${NC}"
 }
 
