@@ -369,6 +369,7 @@ cat > /home/$DEV_USER/.local/bin/cc << 'SCRIPT'
 #   cc yolo! <n>     → Kill + relaunch in YOLO mode
 #   cc safe <n>      → Kill + relaunch in SAFE mode
 #
+#   cc forget <n>    → Clear saved conversation mapping
 #   cc help             → Show this help
 # ─────────────────────────────────────────────────────────
 
@@ -381,8 +382,7 @@ DIM='\033[2m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-CLAUDE_SAFE="claude"
-CLAUDE_YOLO="claude --dangerously-skip-permissions"
+CC_SESSION_DIR="$HOME/.claude/cc-sessions"
 
 # Helper: switch or attach depending on whether we're inside tmux
 _cc_go() {
@@ -391,6 +391,52 @@ _cc_go() {
         tmux switch-client -t "$target"
     else
         tmux attach -t "$target"
+    fi
+}
+
+# Get stored Claude session UUID for a cc session name
+_cc_get_session_id() {
+    local name="$1"
+    local file="$CC_SESSION_DIR/$name"
+    if [ -f "$file" ]; then
+        cat "$file"
+    fi
+}
+
+# Save Claude session UUID for a cc session name
+_cc_save_session_id() {
+    local name="$1"
+    local uuid="$2"
+    mkdir -p "$CC_SESSION_DIR"
+    echo "$uuid" > "$CC_SESSION_DIR/$name"
+}
+
+# Clear stored Claude session UUID (for fresh start)
+_cc_clear_session_id() {
+    local name="$1"
+    rm -f "$CC_SESSION_DIR/$name"
+}
+
+# Build the claude command with session resume support
+_cc_build_cmd() {
+    local mode="$1"
+    local name="$2"
+    local flags=""
+
+    if [ "$mode" = "yolo" ]; then
+        flags="--dangerously-skip-permissions"
+    fi
+
+    local stored_id
+    stored_id=$(_cc_get_session_id "$name")
+
+    if [ -n "$stored_id" ]; then
+        echo "claude --resume $stored_id $flags"
+    else
+        local new_id
+        new_id=$(uuidgen)
+        _cc_save_session_id "$name" "$new_id"
+        echo "claude --session-id $new_id -n $name $flags"
     fi
 }
 
@@ -408,6 +454,7 @@ _cc_help() {
     echo -e "  cc switch ${DIM}(cs)${NC}    Switch between sessions"
     echo -e "  cc rename           Rename current session"
     echo -e "  cc detach           Detach current session"
+    echo -e "  cc forget ${YELLOW}<n>${NC}     Clear saved conversation (fresh start)"
     echo ""
     echo -e "  ${MAGENTA}YOLO MODE${NC} ${DIM}(--dangerously-skip-permissions)${NC}"
     echo -e "  cc yolo             Launch YOLO session (default)"
@@ -494,25 +541,29 @@ _cc_git_checkpoint() {
 
 _cc_new() {
     local name="${1:-claude-$(date +%H%M)}"
-    local cmd="${2:-$CLAUDE_SAFE}"
     if tmux has-session -t "$name" 2>/dev/null; then
         echo -e "${YELLOW}Session '$name' exists - killing it first${NC}"
         tmux kill-session -t "$name"
     fi
+    # Force fresh conversation
+    _cc_clear_session_id "$name"
+    local cmd
+    cmd=$(_cc_build_cmd "safe" "$name")
     echo -e "${GREEN}Creating session:${NC} $name"
-    tmux new-session -d -s "$name" "$cmd; bash"
+    tmux new-session -d -s "$name" -c "$(pwd)" "$cmd; bash"
     _cc_go "$name"
 }
 
 _cc_attach() {
     local name="${1:-claude}"
-    local cmd="${2:-$CLAUDE_SAFE}"
     if tmux has-session -t "$name" 2>/dev/null; then
         echo -e "${GREEN}Attaching to:${NC} $name"
         _cc_go "$name"
     else
+        local cmd
+        cmd=$(_cc_build_cmd "safe" "$name")
         echo -e "${CYAN}Creating session:${NC} $name"
-        tmux new-session -d -s "$name" "$cmd; bash"
+        tmux new-session -d -s "$name" -c "$(pwd)" "$cmd; bash"
         _cc_go "$name"
     fi
 }
@@ -526,33 +577,43 @@ _cc_yolo() {
         echo -e "${GREEN}Attaching to existing:${NC} $name"
         _cc_go "$name"
     else
-        tmux new-session -d -s "$name" "$CLAUDE_YOLO; bash"
+        local cmd
+        cmd=$(_cc_build_cmd "yolo" "$name")
+        tmux new-session -d -s "$name" -c "$(pwd)" "$cmd; bash"
         _cc_go "$name"
     fi
 }
 
 _cc_yolo_force() {
     local name="${1:-claude}"
+    local session_dir="$(pwd)"
     if tmux has-session -t "$name" 2>/dev/null; then
+        session_dir=$(tmux display-message -t "$name" -p '#{pane_current_path}' 2>/dev/null || echo "$(pwd)")
         echo -e "${YELLOW}Killing existing session:${NC} $name"
         tmux kill-session -t "$name"
     fi
     _cc_git_checkpoint
     echo -e "${MAGENTA}${BOLD}>>> YOLO MODE${NC} - all permissions skipped"
     echo ""
-    tmux new-session -d -s "$name" "$CLAUDE_YOLO; bash"
+    local cmd
+    cmd=$(_cc_build_cmd "yolo" "$name")
+    tmux new-session -d -s "$name" -c "$session_dir" "$cmd; bash"
     _cc_go "$name"
 }
 
 _cc_safe() {
     local name="${1:-claude}"
+    local session_dir="$(pwd)"
     if tmux has-session -t "$name" 2>/dev/null; then
+        session_dir=$(tmux display-message -t "$name" -p '#{pane_current_path}' 2>/dev/null || echo "$(pwd)")
         echo -e "${YELLOW}Killing existing session:${NC} $name"
         tmux kill-session -t "$name"
     fi
     echo -e "${GREEN}${BOLD}>>> SAFE MODE${NC} - permissions enabled"
     echo ""
-    tmux new-session -d -s "$name" "$CLAUDE_SAFE; bash"
+    local cmd
+    cmd=$(_cc_build_cmd "safe" "$name")
+    tmux new-session -d -s "$name" -c "$session_dir" "$cmd; bash"
     _cc_go "$name"
 }
 
@@ -566,7 +627,14 @@ _cc_rename() {
         echo -e "${RED}Not inside a tmux session${NC}"
         return 1
     fi
+    local oldname
+    oldname=$(tmux display-message -p '#S')
     tmux rename-session "$newname"
+    # Move session mapping if it exists
+    if [ -f "$CC_SESSION_DIR/$oldname" ]; then
+        mkdir -p "$CC_SESSION_DIR"
+        mv "$CC_SESSION_DIR/$oldname" "$CC_SESSION_DIR/$newname"
+    fi
     echo -e "${GREEN}Session renamed to:${NC} $newname"
 }
 
@@ -597,7 +665,8 @@ case "${1:-}" in
     ls|list)         _cc_list ;;
     kill)            _cc_kill "$2" ;;
     killall)         _cc_killall ;;
-    new)             _cc_new "$2" "$CLAUDE_SAFE" ;;
+    new)             _cc_new "$2" ;;
+    forget)          _cc_clear_session_id "${2:-claude}"; echo -e "${GREEN}Cleared session mapping for:${NC} ${2:-claude}" ;;
     detach)
         if [ -n "$TMUX" ]; then tmux detach
         else echo -e "${RED}Not inside a tmux session${NC}"; fi ;;
@@ -836,10 +905,10 @@ _cc_completions() {
     local cur prev commands sessions
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="ls list kill killall new detach rename switch sw yolo yolo! safe help"
+    commands="ls list kill killall new detach rename switch sw yolo yolo! safe forget help"
 
     case "$prev" in
-        kill|switch|sw|yolo|yolo!|safe)
+        kill|switch|sw|yolo|yolo!|safe|forget)
             sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null)
             COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
             return
