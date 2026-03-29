@@ -5,8 +5,8 @@
 #   Security  : ClamAV, rkhunter, ufw, fail2ban
 
 #   Terminal  : tmux (mobile-optimized for Termius)
-#   Languages : Go, Java 21, Node.js/TypeScript, Python 3.12, Miniconda
-#   LSP       : gopls, pyright, typescript-language-server
+#   Languages : Go, Java 25, Node.js/TypeScript, Python 3.12, Miniconda
+#   LSP       : gopls, jdtls, pyright, typescript-language-server
 #   Tools     : ripgrep, fd, bat, jq, shellcheck
 #   Dev Tool  : Claude Code (native installer)
 # Tested on: Ubuntu 22.04 / 24.04
@@ -1104,12 +1104,12 @@ su - "$DEV_USER" -c 'export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH" && expor
     go install github.com/air-verse/air@latest'
 print_status "Go ${GO_VERSION} installed + gopls, delve, golangci-lint, air"
 
-# ── Java (Eclipse Temurin JDK 21 LTS via Adoptium) ─────
-print_status "Installing Java (Temurin JDK 21)..."
+# ── Java (Eclipse Temurin JDK 25 LTS via Adoptium) ─────
+print_status "Installing Java (Temurin JDK 25)..."
 curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor --yes -o /etc/apt/keyrings/adoptium.gpg
 echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(lsb_release -cs) main" > /etc/apt/sources.list.d/adoptium.list
 apt update -y
-apt install -y temurin-21-jdk
+apt install -y temurin-25-jdk
 
 # Install Maven and Gradle
 apt install -y maven
@@ -1122,16 +1122,48 @@ unzip -qo /tmp/gradle.zip -d /opt
 ln -sf "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle
 rm /tmp/gradle.zip
 
+# Install jdtls (Eclipse JDT Language Server) — latest milestone
+print_status "Installing jdtls (Eclipse JDT Language Server)..."
+JDTLS_INSTALL_DIR="/opt/jdtls"
+JDTLS_MILESTONES_URL="https://download.eclipse.org/jdtls/milestones"
+# Find latest version directory from milestones page
+JDTLS_LATEST_VER=$(curl -fsSL "$JDTLS_MILESTONES_URL/" \
+    | grep -oP 'href="\K[0-9]+\.[0-9]+\.[0-9]+(?=/")' \
+    | sort -V | tail -1)
+if [ -n "$JDTLS_LATEST_VER" ]; then
+    # Get the exact filename from latest.txt
+    JDTLS_FILENAME=$(curl -fsSL "$JDTLS_MILESTONES_URL/$JDTLS_LATEST_VER/latest.txt")
+    if [ -n "$JDTLS_FILENAME" ]; then
+        JDTLS_URL="$JDTLS_MILESTONES_URL/$JDTLS_LATEST_VER/$JDTLS_FILENAME"
+        curl -fsSL "$JDTLS_URL" -o /tmp/jdtls.tar.gz
+        rm -rf "$JDTLS_INSTALL_DIR"
+        mkdir -p "$JDTLS_INSTALL_DIR"
+        tar -xzf /tmp/jdtls.tar.gz -C "$JDTLS_INSTALL_DIR"
+        rm /tmp/jdtls.tar.gz
+        # Create launcher script
+        cat > /usr/local/bin/jdtls << 'JDTLS_LAUNCHER'
+#!/bin/bash
+exec /opt/jdtls/bin/jdtls "$@"
+JDTLS_LAUNCHER
+        chmod +x /usr/local/bin/jdtls
+        print_status "jdtls ${JDTLS_LATEST_VER} installed to ${JDTLS_INSTALL_DIR}"
+    else
+        print_warning "Could not determine jdtls filename from latest.txt — skipping"
+    fi
+else
+    print_warning "Could not determine latest jdtls version — skipping"
+fi
+
 sed -i '/# --- Java START ---/,/# --- Java END ---/d' /home/$DEV_USER/.bashrc
 cat >> /home/$DEV_USER/.bashrc << 'JAVAENV'
 
 # --- Java START ---
-export JAVA_HOME="/usr/lib/jvm/temurin-21-jdk-amd64"
+export JAVA_HOME="/usr/lib/jvm/temurin-25-jdk-amd64"
 export PATH="$JAVA_HOME/bin:$PATH"
 # --- Java END ---
 JAVAENV
 
-print_status "Java 21 (Temurin) + Maven + Gradle ${GRADLE_VERSION} installed"
+print_status "Java 25 (Temurin) + Maven + Gradle ${GRADLE_VERSION} + jdtls installed"
 
 # ── Node.js + TypeScript (via nvm for dev user) ────────
 print_status "Installing Node.js + TypeScript..."
@@ -1308,7 +1340,7 @@ echo ""
 echo "  DEV TOOLCHAINS"
 echo "  ─────────────────────────────────────────"
 echo "  Go         : /usr/local/go  (go, gopls, dlv, air)"
-echo "  Java       : Temurin 21     (maven, gradle)"
+echo "  Java       : Temurin 25     (maven, gradle, jdtls)"
 echo "  Node.js    : via nvm        (ts, tsx, pnpm, yarn, ts-language-server)"
 echo "  Python     : via pyenv 3.12 (ruff, mypy, pytest, poetry, pyright)"
 echo "  Miniconda  : /opt/miniconda3 (auto_activate_base=false)"

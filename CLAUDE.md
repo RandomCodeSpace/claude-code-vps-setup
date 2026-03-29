@@ -21,7 +21,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
   ├── setup-github (interactive GitHub/SSH/GPG setup helper)
   └── Dev Toolchains
       ├── Go (latest stable + gopls, dlv, golangci-lint, air)
-      ├── Java 21 Temurin (maven, gradle 8.12)
+      ├── Java 25 Temurin (maven, gradle 8.12, jdtls)
       ├── Node.js LTS via nvm (typescript, tsx, pnpm, yarn, eslint, prettier, ts-language-server)
       ├── Python 3.12 via pyenv (ruff, mypy, black, pytest, poetry, pyright)
       ├── Miniconda (system-wide, /opt/miniconda3)
@@ -43,12 +43,12 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 | Tailscale | NOT installed | Removed — unnecessary for personal dev |
 | Node.js | nvm (not system) | Version switching without sudo |
 | Python | pyenv (not system) | Version switching without sudo |
-| Java | Temurin 21 LTS | Free, open source JDK from Adoptium |
+| Java | Temurin 25 LTS | Free, open source JDK from Adoptium |
 | Known hosts | Disabled | Both root and dev — no SSH prompts |
 | SSH key | ed25519 (no passphrase) | Access already gated by SSH login to VPS |
 | GPG | Default-on, user-generated | Interactive setup via `setup-github`, signing enabled by default |
 | Git identity | From GitHub (no placeholders) | Set by `setup-github` via `gh api user` |
-| Language servers | gopls, pyright, ts-language-server | Full LSP support for Go, Python, TypeScript |
+| Language servers | gopls, jdtls, pyright, ts-language-server | Full LSP support for Go, Java, Python, TypeScript |
 | Miniconda | System-wide (/opt/miniconda3) | Conda envs without conflicting with pyenv; no auto-activate |
 | Session persistence | UUID mapping in ~/.claude/cc-sessions/ | Resume conversations across mode switches (yolo↔safe) |
 
@@ -67,7 +67,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 10. **ssh-agent** — auto-starts in `.bashrc`, persists across tmux panes via `~/.ssh/agent-env`
 11. **gpg-agent** — 8-hour cache, tty pinentry, `GPG_TTY` exported in `.bashrc`
 12. **Go** — latest stable + gopls, delve, golangci-lint, air
-13. **Java 21** — Temurin JDK + Maven + Gradle 8.12
+13. **Java 25** — Temurin JDK + Maven + Gradle 8.12 + jdtls (Eclipse JDT Language Server)
 14. **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier, typescript-language-server
 15. **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry, ipython, pyright
 16. **Miniconda** — system-wide at /opt/miniconda3, conda init for dev user, auto_activate_base=false
@@ -226,6 +226,7 @@ Optimized for Termius mobile:
 | Pre-existing packages | `/var/lib/vps-setup/pre-existing-packages.list` | Packages before first run |
 | Manifest metadata | `/var/lib/vps-setup/manifest-meta.txt` | Versions, date, user |
 | Miniconda | `/opt/miniconda3` | System-wide Miniconda install |
+| jdtls | `/opt/jdtls` | Eclipse JDT Language Server for Java |
 | Session mappings | `~/.claude/cc-sessions/` | cc session name → Claude session UUID |
 
 ## Language Version Management
@@ -234,7 +235,7 @@ Optimized for Termius mobile:
 # Go — always latest (installed from go.dev tarball)
 go version
 
-# Java — Temurin 21 LTS (via apt)
+# Java — Temurin 25 LTS (via apt)
 java -version
 
 # Node.js — switch versions with nvm
