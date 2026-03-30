@@ -64,11 +64,11 @@ if grep -q "^DenyUsers.*$SANDBOX_USER" /etc/ssh/sshd_config 2>/dev/null; then
     echo -e "${YELLOW}SSH deny already configured for $SANDBOX_USER${NC}"
 elif grep -q "^DenyUsers" /etc/ssh/sshd_config 2>/dev/null; then
     sed -i "s/^DenyUsers.*/& $SANDBOX_USER/" /etc/ssh/sshd_config
-    systemctl restart sshd
+    systemctl restart ssh
     echo -e "${GREEN}SSH:${NC} Added $SANDBOX_USER to existing DenyUsers"
 else
     echo "DenyUsers $SANDBOX_USER" >> /etc/ssh/sshd_config
-    systemctl restart sshd
+    systemctl restart ssh
     echo -e "${GREEN}SSH:${NC} Direct SSH disabled for $SANDBOX_USER"
 fi
 
