@@ -51,7 +51,7 @@ fi
 # ============================================================
 # 0. Create 'dev' user — locked down, no sudo
 # ============================================================
-DEV_USER="dev"
+DEV_USER="sandbox"
 
 if id "$DEV_USER" &>/dev/null; then
     print_warning "User '$DEV_USER' already exists — skipping creation"
