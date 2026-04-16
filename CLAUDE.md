@@ -7,25 +7,40 @@ A secure Hostinger VPS (Ubuntu 22.04/24.04) fully configured for Claude Code dev
 
 ```
 Developer (Termius iOS/Windows)
-  ↓ SSH (port 22, protected by fail2ban)
-Hostinger VPS (Ubuntu 22.04/24.04)
-  ├── User: dev (no sudo, locked down)
+  ↓ SSH (22/tcp) or mosh (UDP 60000-61000), SSH protected by fail2ban
+Hostinger VPS (Ubuntu 22.04/24.04, amd64)
+  ├── User: dev (no sudo, SSH-key only, password locked)
   ├── tmux (mobile-optimized, Termius tab titles)
   ├── Claude Code (native installer, runs as dev)
   ├── Security
   │   ├── ClamAV (antivirus, daily scans)
   │   ├── rkhunter (rootkit scanner, weekly scans)
-  │   ├── ufw (firewall, only port 22 open)
-  │   └── fail2ban (bans after 3 failed SSH attempts)
+  │   ├── ufw (firewall: SSH + mosh only)
+  │   ├── fail2ban (bans after 3 failed SSH attempts)
+  │   └── mosh (mobile shell, reuses SSH key auth)
   ├── setup-github (interactive GitHub + SSH signing helper)
-  └── Dev Toolchains
-      ├── Go (pinned + gopls, dlv, golangci-lint, air, goimports, govulncheck, ctm)
-      ├── Java 25 Temurin (maven, gradle 8.12, jdtls)
-      ├── Node.js LTS via nvm (typescript, tsx, pnpm, yarn, eslint, prettier, ts-language-server)
-      ├── Python 3.12 via pyenv (ruff, mypy, black, pytest, poetry, pyright)
+  ├── Shell (root + dev both): PS1 user@<fqdn>, common aliases,
+  │                           fzf/zoxide/direnv/git-delta integrations
+  └── Dev Toolchains (all pinned in VERSIONS block)
+      ├── Go 1.26 + gopls, dlv, golangci-lint, air, goimports, govulncheck, ctm
+      ├── Java 25 Temurin + maven, gradle 9.4, jdtls
+      ├── Node 24 LTS via nvm + typescript, ts-node, tsx, pnpm, yarn,
+      │                   eslint, prettier, nodemon, ts-language-server,
+      │                   @types/node, npm-check-updates
+      ├── Bun 1.3 (per-user at ~/.bun)
+      ├── Python 3.14 via pyenv + ruff, mypy, black, isort, pytest,
+      │                   httpie, poetry, pipenv, ipython, virtualenv,
+      │                   pyright, pipx, pre-commit
+      ├── uv (standalone binary, not via pip — Astral's install.sh)
+      ├── .NET 10 LTS (dotnet-install.sh → /usr/share/dotnet, system-wide)
+      ├── PowerShell 7 (via Microsoft apt)
       ├── Miniconda (system-wide, /opt/miniconda3)
+      ├── rtk (Rust Token Killer, apt .deb)
       ├── GitHub CLI (gh)
-      └── CLI tools (ripgrep, fd, bat, jq, htop, shellcheck, make, cmake)
+      └── CLI tools (ripgrep, fd, bat, jq, tree, htop, shellcheck,
+                     make, cmake, sqlite3, redis-tools,
+                     postgresql-client, inotify-tools,
+                     fzf, yq, git-delta, zoxide, direnv, tldr, entr)
 ```
 
 ## Decisions Made
@@ -36,10 +51,9 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 | User | `dev` (no sudo) | Security — Claude Code should never run as root |
 | Antivirus | ClamAV + rkhunter | Free, open source, no paid tiers, no telemetry |
 | Firewall | ufw + fail2ban | Free, built into Ubuntu |
-| Networking | Direct SSH (port 22) | Tailscale removed — excess for personal dev env |
+| Networking | SSH (22/tcp) + mosh (UDP 60000-61000) | mosh survives roaming / flaky Wi-Fi; both reuse the same SSH key |
 | Terminal | tmux | Session persistence for mobile |
 | Docker | NOT installed | User preference — explicitly excluded |
-| Tailscale | NOT installed | Removed — unnecessary for personal dev |
 | Node.js | nvm (not system) | Version switching without sudo |
 | Python | pyenv (not system) | Version switching without sudo |
 | Java | Temurin 25 LTS | Free, open source JDK from Adoptium |
@@ -53,23 +67,32 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 ## Script: secure-vps-setup.sh
 
 ### What It Installs (in order)
-1. **User `dev`** — non-root, no sudo, SSH keys copied from root, ed25519 keypair generated, workspace at `/home/dev/projects`
-2. **SSH config** — `StrictHostKeyChecking no` for both root and dev, GitHub host block for dev
-3. **ClamAV** — antivirus daemon + daily cron scan of /home, /tmp, /var/www
-4. **rkhunter** — rootkit scanner + weekly cron scan
-5. **ufw** — firewall, deny all incoming except SSH (22)
-6. **fail2ban** — bans IPs after 3 failed SSH attempts for 1 hour
-7. **tmux** — mobile-optimized config (mouse on, touch scroll, high contrast status bar, aggressive resize)
-8. **`setup-github`** — interactive helper: GitHub auth, git identity, SSH key upload (auth + signing), SSH-based commit signing
-9. **ssh-agent** — auto-starts in `.bashrc`, persists across tmux panes via `~/.ssh/agent-env`
-10. **Go** — pinned stable + gopls, delve, golangci-lint, air, goimports, govulncheck, [ctm](https://github.com/RandomCodeSpace/ctm) (Claude tmux session manager)
-11. **Java 25** — Temurin JDK + Maven + Gradle 8.12 + jdtls (Eclipse JDT Language Server)
-12. **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier, typescript-language-server
-13. **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry, ipython, pyright
-14. **Miniconda** — system-wide at /opt/miniconda3, conda init for dev user, auto_activate_base=false
-15. **CLI tools** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client
-16. **GitHub CLI** — gh
-17. **Claude Code** — native installer, installed for dev user
+1. **Unattended hardening** — sets `DEBIAN_FRONTEND=noninteractive`, `DEBIAN_PRIORITY=critical`, writes `/etc/needrestart/conf.d/99-vps-setup.conf` so apt upgrades don't pop the "which services to restart?" TUI
+2. **User `dev`** — non-root, no sudo, SSH keys copied from root, ed25519 keypair generated, password locked (`passwd -l`), workspace at `/home/dev/projects`
+3. **SSH config** — `StrictHostKeyChecking no` for both root and dev, GitHub host block for dev
+4. **ClamAV** — antivirus daemon + daily cron scan of /home, /tmp, /var/www
+5. **rkhunter** — rootkit scanner + weekly cron scan
+6. **ufw** — firewall: SSH (22/tcp) + mosh (60000-61000/udp), everything else denied, `--force enable`
+7. **fail2ban** — bans IPs after 3 failed SSH attempts for 1 hour
+8. **mosh** — mobile shell (apt); ensures a UTF-8 locale is generated
+9. **tmux** — mobile-optimized config (mouse on, touch scroll, high-contrast status bar, aggressive resize, Termius tab titles)
+10. **`setup-github`** — interactive helper: GitHub auth, git identity, SSH key upload (auth + signing), SSH-based commit signing
+11. **ssh-agent** — auto-starts in `.bashrc`, persists across tmux panes via `~/.ssh/agent-env`
+12. **Build essentials + productivity CLI tools** — `build-essential`, `pkg-config`, `libssl-dev`, `unzip`, `zip`, `jq`, `tree`, `htop`, `ripgrep`, `fd-find`, `bat`, **`fzf`, `yq`, `git-delta`, `zoxide`, `direnv`, `tldr`, `entr`**
+13. **Go 1.26** — official tarball + gopls, delve, golangci-lint (v2), air, goimports, govulncheck, [ctm](https://github.com/RandomCodeSpace/ctm) (Claude tmux session manager)
+14. **Java 25** — Temurin JDK + Maven + Gradle 9.4 + jdtls 1.58 (Eclipse JDT Language Server)
+15. **Node 24 LTS** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, `@types/node`, typescript-language-server, npm-check-updates
+16. **Bun 1.3** — Oven's JS runtime + package manager, installed per-user at `~/.bun`
+17. **Python 3.14** — via pyenv + ruff, mypy, black, isort, pytest, httpie, poetry, pipenv, ipython, virtualenv, pyright, pipx, pre-commit
+18. **uv** — standalone binary via Astral's `install.sh` (pinned via URL path), lands at `~/.local/bin/uv`
+19. **Miniconda** — system-wide at `/opt/miniconda3`, conda init for dev user, `auto_activate_base=false`
+20. **CLI + dev services** — `shellcheck`, `make`, `cmake`, `sqlite3`, `redis-tools`, `postgresql-client`, `inotify-tools`
+21. **rtk** — Rust Token Killer, upstream .deb (`apt install ./file.deb` so deps auto-resolve)
+22. **GitHub CLI** — gh
+23. **.NET 10 LTS** — via `dotnet-install.sh --channel 10.0` → `/usr/share/dotnet`, symlinked system-wide
+24. **PowerShell 7** — via Microsoft's apt repo (added alongside the .NET install step)
+25. **Shell customization** — PS1 (`user@<fqdn>:cwd`), common aliases, fzf/zoxide/direnv/git-delta integrations — written to BOTH `/root/.bashrc` and `/home/dev/.bashrc`; root additionally gets Go PATH, `JAVA_HOME`, `DOTNET_ROOT`, and the conda shell hook
+26. **Claude Code** — native installer, installed for dev user
 
 ### Upgrade-by-Rerun
 Script is safe to rerun and **updates everything on rerun**:
@@ -93,8 +116,9 @@ sudo bash secure-vps-setup.sh
 
 ### Post-Install Steps
 ```bash
-# 1. Switch to dev user
-su - dev
+# 1. Connect as the dev user (mosh or ssh — both use the key copied from root)
+ssh  dev@<vps-ip>
+# mosh dev@<vps-ip>      # install mosh locally first; survives roaming
 
 # 2. Start tmux and launch Claude Code
 tmux new -s claude
@@ -105,9 +129,12 @@ claude
 # 4. Set up GitHub + SSH signing (interactive — gh auth, SSH key upload, commit signing)
 setup-github
 
-# 5. (Optional) Disable root SSH once dev access confirmed
+# 5. Finish ctm (Claude Tmux Manager) shell integration (one-time)
+ctm install
+
+# 6. (Optional) Disable root SSH once dev access confirmed
 sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-sudo systemctl restart sshd
+sudo systemctl restart ssh
 ```
 
 ## GitHub Setup: `setup-github`

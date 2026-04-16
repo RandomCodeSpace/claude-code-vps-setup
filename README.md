@@ -71,8 +71,8 @@ All versions are pinned in a single `VERSIONS` block at the top of `secure-vps-s
 - **Node.js** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, typescript-language-server, npm-check-updates, [bun](https://bun.sh) (alt JS runtime + package manager)
 - **Python** — via pyenv + ruff, mypy, black, isort, pytest, poetry, pipenv, ipython, pyright, uv, pipx, pre-commit, httpie
 - **Miniconda** — system-wide at `/opt/miniconda3` (no auto-activate)
-- **.NET 10 LTS** — `dotnet-sdk-10.0` via Microsoft's apt repo, accessible to root + dev
-- **PowerShell** — latest `pwsh` 7.x via Microsoft's apt repo
+- **.NET 10 LTS** — installed via Microsoft's `dotnet-install.sh` to `/usr/share/dotnet` and symlinked at `/usr/local/bin/dotnet` (works on both 22.04 and 24.04 — Microsoft's jammy apt feed doesn't ship 10.0 yet)
+- **PowerShell** — `pwsh` 7.x via Microsoft's apt repo
 - **CLI** — ripgrep, fd, bat, jq, tree, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, gh
 - **Claude Code productivity** — [rtk](https://github.com/rtk-ai/rtk) (LLM token compressor), fzf (fuzzy finder), yq, git-delta (colored diffs), zoxide (`z` dir jumping), direnv, tldr, entr
 
@@ -109,26 +109,33 @@ Detach with `Ctrl+b d`, re-attach with `tmux attach -t claude`. See `man tmux` f
 ```
 Developer (Termius iOS/Windows)
   ↓ SSH (port 22, protected by fail2ban)
-Hostinger VPS (Ubuntu 22.04/24.04)
-  ├── User: dev (no sudo, locked down)
+Hostinger VPS (Ubuntu 22.04/24.04, amd64)
+  ├── User: dev (no sudo, SSH-key only, password locked)
+  ├── Connectivity: SSH (22/tcp) + mosh (60000-61000/udp)
   ├── tmux (mobile-optimized) → claude
-  ├── setup-github (GitHub + SSH signing)
+  ├── setup-github (GitHub + SSH commit signing)
   ├── Security: ClamAV, rkhunter, ufw, fail2ban
-  └── Go, Java 25, Node.js/nvm, Python/pyenv, gh
+  └── Toolchains:
+       Go 1.26, Java 25, Node 24, Python 3.14, bun, .NET 10 LTS,
+       PowerShell 7, Miniconda, rtk, ctm, gh
 ```
 
 ## Design Decisions
 
 | Decision | Choice | Why |
 |----------|--------|-----|
-| User | `dev` (no sudo) | Claude Code should never run as root |
-| SSH key | ed25519, no passphrase | Access gated by SSH login to VPS |
+| OS / arch | Ubuntu 22.04 / 24.04, amd64 | All major VPS providers default here |
+| User | `dev` (no sudo, password locked) | Claude Code should never run as root |
+| Auth | SSH key only | Password login disabled; access gated by SSH login to VPS |
+| Remote shell | SSH + mosh | mosh survives roaming / flaky Wi-Fi; both use the same key |
 | Commit signing | SSH (same ed25519 key as auth) | One key for auth + signing; GitHub supports SSH-signed commits natively |
 | Git identity | From GitHub via `gh` | No placeholders, real identity only |
-| Node.js | nvm | Version switching without sudo |
-| Python | pyenv | Version switching without sudo |
+| Versions | All pinned in `VERSIONS` block | Reproducible installs; bump-and-rerun upgrade path |
+| Node.js | nvm (per-user) | Version switching without sudo |
+| Python | pyenv (per-user) | Version switching without sudo |
+| uv | Standalone installer, not pip | Decouples uv from any specific Python |
+| .NET | `dotnet-install.sh --channel 10.0` | Works on 22.04 + 24.04; Microsoft's jammy apt repo doesn't have 10.0 yet |
 | Docker | Not installed | Excluded by preference |
-| Tailscale | Not installed | Unnecessary for personal dev |
 
 ## Upgrade
 

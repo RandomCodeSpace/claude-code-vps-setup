@@ -954,20 +954,35 @@ apt update -y
 apt install -y gh
 print_status "GitHub CLI (gh) installed"
 
-# ── .NET SDK (LTS) + PowerShell via Microsoft apt repo ──
-# Microsoft publishes a packages-microsoft-prod.deb that adds their apt
-# repo + GPG key for the target Ubuntu release. After installing it,
-# dotnet-sdk-<major.minor> and powershell are plain apt packages —
-# system-wide, accessible to both root and $DEV_USER via /usr/bin.
+# ── PowerShell (apt) + .NET SDK LTS (official installer) ──
+# PowerShell lives only in Microsoft's apt repo, but .NET 10 isn't in
+# Microsoft's jammy (22.04) feed yet and the noble (24.04) naming lives
+# in Ubuntu's universe — not Microsoft's. To install .NET 10 reliably
+# on BOTH 22.04 and 24.04 we use Microsoft's official dotnet-install.sh
+# which pulls signed binaries from dot.net/v1 and is version-pinned by
+# --channel. PowerShell stays on apt since Ubuntu doesn't ship it.
 print_status "Installing .NET ${DOTNET_LTS_VERSION} LTS + PowerShell..."
+
+# Add Microsoft apt repo (needed for PowerShell)
 UBUNTU_VER_ID=$(. /etc/os-release && echo "$VERSION_ID")
 MS_PROD_DEB="/tmp/packages-microsoft-prod.deb"
 curl -fsSL "https://packages.microsoft.com/config/ubuntu/${UBUNTU_VER_ID}/packages-microsoft-prod.deb" -o "$MS_PROD_DEB"
 apt install -y "$MS_PROD_DEB"
 rm -f "$MS_PROD_DEB"
 apt update -y
-apt install -y "dotnet-sdk-${DOTNET_LTS_VERSION}" powershell
-print_status ".NET $(dotnet --version 2>/dev/null || echo "${DOTNET_LTS_VERSION}.x") + PowerShell $(pwsh --version 2>/dev/null | head -1 || echo "${PWSH_NOTE}") installed"
+apt install -y powershell
+
+# .NET SDK via dotnet-install.sh — installs to /usr/share/dotnet, then
+# symlink exposes it system-wide so both root and $DEV_USER get `dotnet`
+# on PATH. Re-running with the same --channel is idempotent (no-op when
+# the latest patch is already installed; updates when a new one drops).
+curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+chmod +x /tmp/dotnet-install.sh
+/tmp/dotnet-install.sh --channel "${DOTNET_LTS_VERSION}" --install-dir /usr/share/dotnet
+rm -f /tmp/dotnet-install.sh
+ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+
+print_status ".NET $(/usr/local/bin/dotnet --version 2>/dev/null || echo "${DOTNET_LTS_VERSION}.x") + PowerShell $(pwsh --version 2>/dev/null | head -1 || echo "${PWSH_NOTE}") installed"
 
 # ============================================================
 # 9. Shell customization — PS1 + aliases + productivity init
@@ -987,7 +1002,11 @@ _write_common_bashrc() {
 
 # --- PS1 START ---
 # Cache FQDN once on shell load — avoids spawning `hostname` per prompt.
-_HOSTNAME_FQDN=$(hostname -f 2>/dev/null || hostname)
+# Triple fallback handles fresh VPS where /etc/hosts doesn't yet map
+# the short name to an FQDN (hostname -f returns empty, not an error).
+_HOSTNAME_FQDN=$(hostname -f 2>/dev/null)
+[ -z "$_HOSTNAME_FQDN" ] && _HOSTNAME_FQDN=$(hostname 2>/dev/null)
+[ -z "$_HOSTNAME_FQDN" ] && _HOSTNAME_FQDN="vps"
 PS1="\[\033[01;32m\]\u@${_HOSTNAME_FQDN}\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "
 # --- PS1 END ---
 PS1_EOF
@@ -1078,6 +1097,9 @@ cat >> /root/.bashrc <<ROOT_TC
 export PATH="/usr/local/go/bin:\$PATH"
 export JAVA_HOME="${JAVA_HOME_PATH}"
 export PATH="\$JAVA_HOME/bin:\$PATH"
+# .NET was installed via dotnet-install.sh, not apt, so DOTNET_ROOT
+# must be set for dotnet to find the shared framework.
+export DOTNET_ROOT="/usr/share/dotnet"
 # conda is symlinked to /usr/local/bin/conda so no PATH change needed;
 # source the shell hook for activate/deactivate support.
 if [ -f /opt/miniconda3/etc/profile.d/conda.sh ]; then
@@ -1085,6 +1107,15 @@ if [ -f /opt/miniconda3/etc/profile.d/conda.sh ]; then
 fi
 # --- Root Toolchains END ---
 ROOT_TC
+
+# Same DOTNET_ROOT for the dev user
+sed -i '/# --- Dotnet START ---/,/# --- Dotnet END ---/d' /home/$DEV_USER/.bashrc
+cat >> /home/$DEV_USER/.bashrc <<'DOTNET_ENV'
+
+# --- Dotnet START ---
+export DOTNET_ROOT="/usr/share/dotnet"
+# --- Dotnet END ---
+DOTNET_ENV
 
 # Fix ownership of everything in dev home
 chown -R $DEV_USER:$DEV_USER /home/$DEV_USER
