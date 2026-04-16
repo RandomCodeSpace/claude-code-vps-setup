@@ -4,17 +4,29 @@ One-command setup for a secure Hostinger VPS (Ubuntu 22.04/24.04) fully configur
 
 ## Quick Start
 
+SSH into your VPS as root, then run:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RandomCodeSpace/claude-code-vps-setup/main/secure-vps-setup.sh | sudo bash
 ```
 
-Or download and review first:
+Or download and review first (recommended — it's long and does a lot):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RandomCodeSpace/claude-code-vps-setup/main/secure-vps-setup.sh -o setup.sh
 chmod +x setup.sh
 sudo bash setup.sh
 ```
+
+Or clone the whole repo if you want the reset script and docs alongside:
+
+```bash
+git clone https://github.com/RandomCodeSpace/claude-code-vps-setup.git
+cd claude-code-vps-setup
+sudo bash secure-vps-setup.sh
+```
+
+All three are safe to rerun — every install step replaces the pinned version on rerun, so upgrading is just a `git pull && sudo bash secure-vps-setup.sh`.
 
 ## Post-Install
 
@@ -46,11 +58,15 @@ setup-github
 - **tmux** — mobile-optimized (mouse, touch scroll, aggressive resize, 50k scrollback, Termius tab titles)
 
 ### Languages & Tools
-- **Go** — latest stable + gopls, delve, golangci-lint, air
-- **Java 25** — Temurin JDK + Maven + Gradle 8.12 + jdtls
-- **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier
-- **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry
-- **CLI** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, gh
+
+All versions are pinned in a single `VERSIONS` block at the top of `secure-vps-setup.sh`. Bump a variable there and rerun the script to upgrade.
+
+- **Go** — gopls, delve, golangci-lint, air, goimports, govulncheck
+- **Java** — Temurin 25 JDK + Maven + Gradle + jdtls (Eclipse JDT Language Server)
+- **Node.js** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, typescript-language-server, npm-check-updates
+- **Python** — via pyenv + ruff, mypy, black, isort, pytest, poetry, pipenv, ipython, pyright, uv, pipx, pre-commit, httpie
+- **Miniconda** — system-wide at `/opt/miniconda3` (no auto-activate)
+- **CLI** — ripgrep, fd, bat, jq, tree, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, gh
 
 ### Identity & Signing
 - **SSH** — ed25519 keypair used for both authentication and commit signing (same key, two GitHub entries via `--type signing`)
@@ -99,13 +115,13 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 
 ## Upgrade
 
-Rerun the setup script to upgrade everything in place:
+Edit the `VERSIONS` block at the top of `secure-vps-setup.sh`, bump any pin, then rerun:
 
 ```bash
 sudo bash secure-vps-setup.sh
 ```
 
-All configs, toolchains, and packages are updated. Bashrc blocks use `START`/`END` markers so they're replaced cleanly. Old Gradle versions are removed. nvm and pyenv are updated.
+Every install step replaces the installed version with the pinned one — no floating `@latest` anywhere. `.bashrc` blocks use `START`/`END` markers so they're rewritten cleanly, old Gradle dirs are pruned before extract, and the package manifest in `/var/lib/vps-setup/` is refreshed.
 
 ## Reset / Uninstall
 
