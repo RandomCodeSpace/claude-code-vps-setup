@@ -79,6 +79,9 @@ PRECOMMIT_VERSION="4.5.1"
 # Miniconda
 MINICONDA_VERSION="py312_26.1.1-1"
 
+# rtk (Rust Token Killer) — CLI output compressor, installed from upstream .deb
+RTK_VERSION="v0.36.0"
+
 # --- Check root ---
 if [ "$EUID" -ne 0 ]; then
     print_error "Please run as root: sudo bash secure-vps-setup.sh"
@@ -866,6 +869,15 @@ apt install -y \
     postgresql-client \
     inotify-tools
 
+# ── rtk (Rust Token Killer) — CLI output compressor ─────
+# Installs the upstream .deb so dpkg handles upgrades on rerun.
+print_status "Installing rtk ${RTK_VERSION}..."
+RTK_DEB_FILE="rtk_${RTK_VERSION#v}-1_amd64.deb"
+curl -fsSL "https://github.com/rtk-ai/rtk/releases/download/${RTK_VERSION}/${RTK_DEB_FILE}" -o /tmp/rtk.deb
+dpkg -i /tmp/rtk.deb
+rm /tmp/rtk.deb
+print_status "rtk ${RTK_VERSION} installed"
+
 # ── GitHub CLI (gh) — always add repo + install/upgrade ──
 print_status "Installing/updating GitHub CLI..."
 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
@@ -916,6 +928,7 @@ UV_VERSION=${UV_VERSION}
 PIPX_VERSION=${PIPX_VERSION}
 PRECOMMIT_VERSION=${PRECOMMIT_VERSION}
 MINICONDA_VERSION=${MINICONDA_VERSION}
+RTK_VERSION=${RTK_VERSION}
 METAMANIFEST
 print_status "Package manifest written to $MANIFEST_DIR/"
 
@@ -959,7 +972,7 @@ echo "  Java       : ${TEMURIN_PKG}  (maven, gradle ${GRADLE_VERSION}, jdtls ${J
 echo "  Node.js    : ${NODE_VERSION}  (ts ${TS_VERSION}, tsx, pnpm ${PNPM_VERSION}, yarn, ts-language-server, ncu)"
 echo "  Python     : ${PYTHON_VERSION}  (ruff ${RUFF_VERSION}, mypy, pytest, poetry, pyright, uv ${UV_VERSION}, pipx, pre-commit)"
 echo "  Miniconda  : ${MINICONDA_VERSION}  (/opt/miniconda3, auto_activate_base=false)"
-echo "  Extras     : ripgrep, fd, bat, jq, htop, shellcheck"
+echo "  Extras     : ripgrep, fd, bat, jq, htop, shellcheck, rtk ${RTK_VERSION}"
 echo "  DEV TOOLS"
 echo "  ─────────────────────────────────────────"
 echo "  tmux         : Mobile-optimized"
