@@ -37,6 +37,31 @@ print_status()  { echo -e "${GREEN}[✓]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
 print_error()   { echo -e "${RED}[✗]${NC} $1"; }
 
+# ── Apt wrappers ─────────────────────────────────────────
+# `apt update` can race against Ubuntu mirror syncs and fail with
+# "File has unexpected size (X != Y). Mirror sync in progress?".
+# Retry with exponential backoff; clear the partial lists between
+# attempts so the next try starts clean. Bail out loudly if it keeps
+# failing — that's a real network issue, not a transient mirror race.
+apt_update_retry() {
+    local attempt=1
+    local max=4
+    while true; do
+        if apt-get update -y; then
+            return 0
+        fi
+        if [ "$attempt" -ge "$max" ]; then
+            print_error "apt update failed after $max attempts"
+            return 1
+        fi
+        local wait=$((attempt * 15))
+        print_warning "apt update attempt $attempt/$max failed — retrying in ${wait}s (probably a mirror sync)"
+        rm -rf /var/lib/apt/lists/partial/* 2>/dev/null || true
+        sleep "$wait"
+        attempt=$((attempt + 1))
+    done
+}
+
 # ============================================================
 # Pinned versions — bump these to upgrade, then rerun the script.
 # Every install below reinstalls to the pinned version on rerun, so the
@@ -116,7 +141,7 @@ echo ""
 
 # --- Update system ---
 print_status "Updating system packages..."
-apt update -y && apt upgrade -y
+apt_update_retry && apt upgrade -y
 
 # --- Save pre-existing package list (first run only) ---
 MANIFEST_DIR="/var/lib/vps-setup"
@@ -753,7 +778,7 @@ print_warning "Run 'ctm install' as the dev user to finish ctm shell integration
 print_status "Installing Java (${TEMURIN_PKG})..."
 curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor --yes -o /etc/apt/keyrings/adoptium.gpg
 echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(lsb_release -cs) main" > /etc/apt/sources.list.d/adoptium.list
-apt update -y
+apt_update_retry
 apt install -y "$TEMURIN_PKG"
 
 # Install Maven (apt handles version) and pinned Gradle
@@ -951,7 +976,7 @@ print_status "Installing/updating GitHub CLI..."
 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
 chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
-apt update -y
+apt_update_retry
 apt install -y gh
 print_status "GitHub CLI (gh) installed"
 
@@ -970,7 +995,7 @@ MS_PROD_DEB="/tmp/packages-microsoft-prod.deb"
 curl -fsSL "https://packages.microsoft.com/config/ubuntu/${UBUNTU_VER_ID}/packages-microsoft-prod.deb" -o "$MS_PROD_DEB"
 apt install -y "$MS_PROD_DEB"
 rm -f "$MS_PROD_DEB"
-apt update -y
+apt_update_retry
 apt install -y powershell
 
 # .NET SDK via dotnet-install.sh — installs to /usr/share/dotnet, then
@@ -997,7 +1022,7 @@ curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
     | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
     > /etc/apt/sources.list.d/caddy-stable.list
-apt update -y
+apt_update_retry
 apt install -y caddy
 systemctl enable caddy
 systemctl restart caddy
