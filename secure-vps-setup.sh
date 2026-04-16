@@ -49,22 +49,24 @@ if [ ! -f "$MANIFEST_DIR/pre-existing-packages.list" ]; then
 fi
 
 # ============================================================
-# 0. Create 'dev' user — locked down, no sudo
+# 0. Create 'dev' user — locked down, no sudo, SSH-key only
 # ============================================================
-DEV_USER="sandbox"
+DEV_USER="dev"
 
 if id "$DEV_USER" &>/dev/null; then
-    print_warning "User '$DEV_USER' already exists — skipping creation"
+    print_status "User '$DEV_USER' already exists"
 else
     print_status "Creating user '$DEV_USER' (no sudo, no root access)..."
     adduser --disabled-password --gecos "Claude Code Dev User" "$DEV_USER"
-
-    # Set a random password (login will be via SSH key)
-    TEMP_PASS=$(openssl rand -base64 16)
-    echo "${DEV_USER}:${TEMP_PASS}" | chpasswd
-    print_warning "Temporary password for '$DEV_USER': $TEMP_PASS"
-    print_warning "Save this now! Or set your own: sudo passwd $DEV_USER"
 fi
+
+# Ensure no password login — SSH key auth only.
+# Locks the password field in /etc/shadow (prefixes with '!'). Idempotent:
+# - fresh users from --disabled-password are already locked
+# - users left with a random password from older versions of this script
+#   (chpasswd) get cleaned up on rerun
+passwd -l "$DEV_USER" >/dev/null 2>&1 || true
+print_status "Password locked for '$DEV_USER' — SSH key auth only"
 
 # Ensure dev user is NOT in sudo group
 deluser "$DEV_USER" sudo 2>/dev/null || true
