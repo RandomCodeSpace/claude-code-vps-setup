@@ -71,6 +71,8 @@ All versions are pinned in a single `VERSIONS` block at the top of `secure-vps-s
 - **Node.js** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, typescript-language-server, npm-check-updates, [bun](https://bun.sh) (alt JS runtime + package manager)
 - **Python** — via pyenv + ruff, mypy, black, isort, pytest, poetry, pipenv, ipython, pyright, uv, pipx, pre-commit, httpie
 - **Miniconda** — system-wide at `/opt/miniconda3` (no auto-activate)
+- **.NET 10 LTS** — `dotnet-sdk-10.0` via Microsoft's apt repo, accessible to root + dev
+- **PowerShell** — latest `pwsh` 7.x via Microsoft's apt repo
 - **CLI** — ripgrep, fd, bat, jq, tree, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, gh
 - **Claude Code productivity** — [rtk](https://github.com/rtk-ai/rtk) (LLM token compressor), fzf (fuzzy finder), yq, git-delta (colored diffs), zoxide (`z` dir jumping), direnv, tldr, entr
 

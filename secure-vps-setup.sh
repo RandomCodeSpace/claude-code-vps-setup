@@ -97,6 +97,10 @@ MINICONDA_VERSION="py312_26.1.1-1"
 # rtk (Rust Token Killer) — CLI output compressor, installed from upstream .deb
 RTK_VERSION="v0.36.0"
 
+# .NET + PowerShell (Microsoft apt repo handles point-level updates)
+DOTNET_LTS_VERSION="10.0"   # Even majors are LTS per Microsoft's policy
+PWSH_NOTE="7.6.x"           # apt 'powershell' package tracks Microsoft's latest 7.x
+
 # --- Check root ---
 if [ "$EUID" -ne 0 ]; then
     print_error "Please run as root: sudo bash secure-vps-setup.sh"
@@ -950,6 +954,21 @@ apt update -y
 apt install -y gh
 print_status "GitHub CLI (gh) installed"
 
+# ── .NET SDK (LTS) + PowerShell via Microsoft apt repo ──
+# Microsoft publishes a packages-microsoft-prod.deb that adds their apt
+# repo + GPG key for the target Ubuntu release. After installing it,
+# dotnet-sdk-<major.minor> and powershell are plain apt packages —
+# system-wide, accessible to both root and $DEV_USER via /usr/bin.
+print_status "Installing .NET ${DOTNET_LTS_VERSION} LTS + PowerShell..."
+UBUNTU_VER_ID=$(. /etc/os-release && echo "$VERSION_ID")
+MS_PROD_DEB="/tmp/packages-microsoft-prod.deb"
+curl -fsSL "https://packages.microsoft.com/config/ubuntu/${UBUNTU_VER_ID}/packages-microsoft-prod.deb" -o "$MS_PROD_DEB"
+apt install -y "$MS_PROD_DEB"
+rm -f "$MS_PROD_DEB"
+apt update -y
+apt install -y "dotnet-sdk-${DOTNET_LTS_VERSION}" powershell
+print_status ".NET $(dotnet --version 2>/dev/null || echo "${DOTNET_LTS_VERSION}.x") + PowerShell $(pwsh --version 2>/dev/null | head -1 || echo "${PWSH_NOTE}") installed"
+
 # ============================================================
 # 9. Shell customization — PS1 + aliases + productivity init
 # ============================================================
@@ -1110,6 +1129,7 @@ PIPX_VERSION=${PIPX_VERSION}
 PRECOMMIT_VERSION=${PRECOMMIT_VERSION}
 MINICONDA_VERSION=${MINICONDA_VERSION}
 RTK_VERSION=${RTK_VERSION}
+DOTNET_LTS_VERSION=${DOTNET_LTS_VERSION}
 METAMANIFEST
 print_status "Package manifest written to $MANIFEST_DIR/"
 
@@ -1154,6 +1174,8 @@ echo "  Java       : ${TEMURIN_PKG}  (maven, gradle ${GRADLE_VERSION}, jdtls ${J
 echo "  Node.js    : ${NODE_VERSION}  (ts ${TS_VERSION}, tsx, pnpm ${PNPM_VERSION}, yarn, ts-language-server, ncu, ${BUN_VERSION})"
 echo "  Python     : ${PYTHON_VERSION}  (ruff ${RUFF_VERSION}, mypy, pytest, poetry, pyright, uv ${UV_VERSION}, pipx, pre-commit)"
 echo "  Miniconda  : ${MINICONDA_VERSION}  (/opt/miniconda3, auto_activate_base=false)"
+echo "  .NET LTS   : ${DOTNET_LTS_VERSION}  (dotnet-sdk-${DOTNET_LTS_VERSION} via Microsoft apt)"
+echo "  PowerShell : pwsh (tracks Microsoft apt, latest 7.x)"
 echo "  Extras     : ripgrep, fd, bat, jq, htop, shellcheck, rtk ${RTK_VERSION}"
 echo "  DEV TOOLS"
 echo "  ─────────────────────────────────────────"
