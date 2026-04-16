@@ -260,8 +260,10 @@ ufw allow 60000:61000/udp comment 'mosh'
 # ufw allow 80/tcp comment 'HTTP'
 # ufw allow 443/tcp comment 'HTTPS'
 
-# Enable firewall
-echo "y" | ufw enable
+# Enable firewall (--force skips the interactive "may disrupt existing
+# ssh connections" confirmation; safe because SSH + mosh rules are
+# already above this line)
+ufw --force enable
 ufw status verbose
 
 print_status "UFW enabled — SSH (22/tcp) + mosh (60000-61000/udp) allowed, all other incoming blocked"
@@ -890,11 +892,13 @@ apt install -y \
     inotify-tools
 
 # ── rtk (Rust Token Killer) — CLI output compressor ─────
-# Installs the upstream .deb so dpkg handles upgrades on rerun.
+# Installs the upstream .deb via `apt install ./file.deb` so apt
+# auto-resolves any runtime dependencies instead of dpkg erroring out.
+# dpkg handles upgrades cleanly on rerun via the normal Packages db.
 print_status "Installing rtk ${RTK_VERSION}..."
 RTK_DEB_FILE="rtk_${RTK_VERSION#v}-1_amd64.deb"
 curl -fsSL "https://github.com/rtk-ai/rtk/releases/download/${RTK_VERSION}/${RTK_DEB_FILE}" -o /tmp/rtk.deb
-dpkg -i /tmp/rtk.deb
+apt install -y /tmp/rtk.deb
 rm /tmp/rtk.deb
 print_status "rtk ${RTK_VERSION} installed"
 
