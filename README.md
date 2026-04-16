@@ -71,7 +71,17 @@ All versions are pinned in a single `VERSIONS` block at the top of `secure-vps-s
 - **Node.js** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, typescript-language-server, npm-check-updates, [bun](https://bun.sh) (alt JS runtime + package manager)
 - **Python** — via pyenv + ruff, mypy, black, isort, pytest, poetry, pipenv, ipython, pyright, uv, pipx, pre-commit, httpie
 - **Miniconda** — system-wide at `/opt/miniconda3` (no auto-activate)
-- **CLI** — ripgrep, fd, bat, jq, tree, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, gh, [rtk](https://github.com/rtk-ai/rtk) (LLM token compressor for shell output)
+- **CLI** — ripgrep, fd, bat, jq, tree, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, gh
+- **Claude Code productivity** — [rtk](https://github.com/rtk-ai/rtk) (LLM token compressor), fzf (fuzzy finder), yq, git-delta (colored diffs), zoxide (`z` dir jumping), direnv, tldr, entr
+
+### Shell customization
+
+Both `/root/.bashrc` and `/home/dev/.bashrc` get:
+- **PS1** showing `user@<fqdn>:cwd$` (FQDN resolved once per shell)
+- Common aliases (`ll`, `la`, `gs`, `gl`, `gd`, `gc`, `gp`, `..`, `rebash`, etc.)
+- Tool integrations (fzf key-bindings, zoxide init, direnv hook, git-delta as default pager)
+
+Root additionally gets Go PATH + `JAVA_HOME` + conda shell hook so troubleshooting as root can use the language runtimes. nvm/pyenv/bun remain dev-only by design (per-user installs).
 
 ### Identity & Signing
 - **SSH** — ed25519 keypair used for both authentication and commit signing (same key, two GitHub entries via `--type signing`)

@@ -14,6 +14,20 @@
 
 set -e
 
+# ── Unattended execution ─────────────────────────────────
+# Keep apt and dpkg fully non-interactive. DEBIAN_FRONTEND alone isn't
+# enough on 24.04 — needrestart prompts "Which services to restart?"
+# during upgrades. Configure it to auto-restart everything.
+export DEBIAN_FRONTEND=noninteractive
+export DEBIAN_PRIORITY=critical
+if [ -d /etc/needrestart ]; then
+    mkdir -p /etc/needrestart/conf.d
+    cat > /etc/needrestart/conf.d/99-vps-setup.conf <<'NRCONF'
+$nrconf{restart} = 'a';
+$nrconf{kernelhints} = 0;
+NRCONF
+fi
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -681,9 +695,18 @@ print_status "tmux installed — mobile-optimized"
 # ============================================================
 print_status "Installing development toolchains..."
 
-# ── System-level build essentials ───────────────────────
+# ── System-level build essentials + productivity tools ──
+# Productivity adds (all help Claude Code sessions run faster / cheaper):
+#   fzf       — fuzzy finder, Ctrl-R history, cuts exploration turns
+#   yq        — YAML query, companion to jq, saves tokens vs grep-parsing
+#   git-delta — paginated/colored git diff output (binary: `delta`)
+#   zoxide    — `z <partial>` directory jump, cuts `cd long/path/…` tokens
+#   direnv    — per-dir env vars, no repeated export boilerplate
+#   tldr      — simplified man pages (huge token saver vs `man foo`)
+#   entr      — re-run a command on file change (test-loop workflow)
 apt install -y build-essential pkg-config libssl-dev \
     unzip zip jq tree htop ripgrep fd-find bat \
+    fzf yq git-delta zoxide direnv tldr entr \
     software-properties-common apt-transport-https ca-certificates
 
 # Symlink fd and bat (Ubuntu names them differently)
@@ -862,9 +885,15 @@ su - "$DEV_USER" -c "export PYENV_ROOT=\$HOME/.pyenv && \
         ipython==${IPYTHON_VERSION} \
         virtualenv==${VIRTUALENV_VERSION} \
         pyright==${PYRIGHT_VERSION} \
-        uv==${UV_VERSION} \
         pipx==${PIPX_VERSION} \
         pre-commit==${PRECOMMIT_VERSION}"
+
+# uv is installed as a standalone binary (not via pip) so it isn't
+# coupled to pyenv's active Python. Astral publishes a per-version
+# install.sh at https://astral.sh/uv/<version>/install.sh — that URL is
+# the pinning mechanism. Binary lands in ~/.local/bin/uv (already on
+# PATH via the Claude Code VPS additions block).
+su - "$DEV_USER" -c "curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh"
 
 print_status "Python ${PYTHON_VERSION} + ruff ${RUFF_VERSION}, mypy ${MYPY_VERSION}, pytest ${PYTEST_VERSION}, poetry ${POETRY_VERSION}, pyright ${PYRIGHT_VERSION}, uv ${UV_VERSION}, pipx ${PIPX_VERSION}, pre-commit ${PRECOMMIT_VERSION} installed (via pyenv)"
 
@@ -921,10 +950,127 @@ apt update -y
 apt install -y gh
 print_status "GitHub CLI (gh) installed"
 
+# ============================================================
+# 9. Shell customization — PS1 + aliases + productivity init
+# ============================================================
+# Applied to BOTH /root/.bashrc and /home/$DEV_USER/.bashrc so the two
+# users have a consistent workflow. Written via delete-then-append so
+# reruns rewrite cleanly (no duplicate blocks).
+print_status "Writing shell customization (PS1, aliases, tool integrations) to root + $DEV_USER..."
+
+_write_common_bashrc() {
+    local rc="$1"
+    [ -f "$rc" ] || touch "$rc"
+
+    # PS1 — show user@<fqdn>:cwd with colors
+    sed -i '/# --- PS1 START ---/,/# --- PS1 END ---/d' "$rc"
+    cat >> "$rc" <<'PS1_EOF'
+
+# --- PS1 START ---
+# Cache FQDN once on shell load — avoids spawning `hostname` per prompt.
+_HOSTNAME_FQDN=$(hostname -f 2>/dev/null || hostname)
+PS1="\[\033[01;32m\]\u@${_HOSTNAME_FQDN}\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "
+# --- PS1 END ---
+PS1_EOF
+
+    # Aliases — common dev shortcuts
+    sed -i '/# --- Aliases START ---/,/# --- Aliases END ---/d' "$rc"
+    cat >> "$rc" <<'ALIASES_EOF'
+
+# --- Aliases START ---
+# ls / navigation
+alias ll='ls -lah --color=auto'
+alias la='ls -A --color=auto'
+alias l='ls -CF --color=auto'
+alias ls='ls --color=auto'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+
+# grep with color
+alias grep='grep --color=auto'
+alias egrep='grep -E --color=auto'
+alias fgrep='grep -F --color=auto'
+
+# git shortcuts (widely expected muscle memory)
+alias gs='git status'
+alias gl='git log --oneline --graph --decorate --all'
+alias gd='git diff'
+alias gds='git diff --staged'
+alias gc='git commit'
+alias gca='git commit --amend'
+alias gp='git push'
+alias gpl='git pull'
+alias gco='git checkout'
+alias gb='git branch'
+
+# misc
+alias h='history'
+alias c='clear'
+alias rebash='source ~/.bashrc && echo "bashrc reloaded"'
+alias ports='ss -tulpn'
+alias myip='curl -s ifconfig.me; echo'
+alias path='echo $PATH | tr : "\n"'
+
+# cat → bat (Ubuntu installs as batcat; we symlinked /usr/local/bin/bat)
+command -v bat >/dev/null 2>&1 && alias cat='bat --paging=never'
+# ls → eza not installed by default; stick with ls
+
+# Claude Code / rtk shortcut — prefix any verbose command with `rtk `
+# to compress its output (e.g. `rtk git log`, `rtk cargo test`)
+# --- Aliases END ---
+ALIASES_EOF
+
+    # Productivity tool shell integrations
+    sed -i '/# --- Productivity START ---/,/# --- Productivity END ---/d' "$rc"
+    cat >> "$rc" <<'PROD_EOF'
+
+# --- Productivity START ---
+# fzf — Ctrl-R history search, Ctrl-T file picker, Alt-C dir picker
+if [ -f /usr/share/doc/fzf/examples/key-bindings.bash ]; then
+    . /usr/share/doc/fzf/examples/key-bindings.bash
+fi
+if [ -f /usr/share/bash-completion/completions/fzf ]; then
+    . /usr/share/bash-completion/completions/fzf
+fi
+
+# zoxide — `z <fragment>` jumps to frequently-used dirs
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"
+
+# direnv — auto-load .envrc per project dir
+command -v direnv >/dev/null 2>&1 && eval "$(direnv hook bash)"
+
+# git-delta as default pager (colored word-diff)
+if command -v delta >/dev/null 2>&1; then
+    export GIT_PAGER='delta --line-numbers'
+fi
+# --- Productivity END ---
+PROD_EOF
+}
+
+_write_common_bashrc /root/.bashrc
+_write_common_bashrc /home/$DEV_USER/.bashrc
+
+# Root gets a subset of the dev env so language runtimes work when root
+# is troubleshooting. nvm/pyenv/bun stay dev-only by design (per-user).
+sed -i '/# --- Root Toolchains START ---/,/# --- Root Toolchains END ---/d' /root/.bashrc
+cat >> /root/.bashrc <<ROOT_TC
+# --- Root Toolchains START ---
+export PATH="/usr/local/go/bin:\$PATH"
+export JAVA_HOME="${JAVA_HOME_PATH}"
+export PATH="\$JAVA_HOME/bin:\$PATH"
+# conda is symlinked to /usr/local/bin/conda so no PATH change needed;
+# source the shell hook for activate/deactivate support.
+if [ -f /opt/miniconda3/etc/profile.d/conda.sh ]; then
+    . /opt/miniconda3/etc/profile.d/conda.sh
+fi
+# --- Root Toolchains END ---
+ROOT_TC
+
 # Fix ownership of everything in dev home
 chown -R $DEV_USER:$DEV_USER /home/$DEV_USER
 
-print_status "All dev toolchains installed"
+print_status "All dev toolchains installed + shell customization applied to root + $DEV_USER"
 
 # --- Write package manifest ---
 CURRENT_PKGS=$(mktemp)
