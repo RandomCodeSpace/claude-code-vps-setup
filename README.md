@@ -47,7 +47,7 @@ setup-github
 
 ### Languages & Tools
 - **Go** — latest stable + gopls, delve, golangci-lint, air
-- **Java 21** — Temurin JDK + Maven + Gradle 8.12
+- **Java 25** — Temurin JDK + Maven + Gradle 8.12 + jdtls
 - **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier
 - **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry
 - **CLI** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, gh
@@ -81,7 +81,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
   ├── tmux (mobile-optimized) → claude
   ├── setup-github (GitHub + SSH signing)
   ├── Security: ClamAV, rkhunter, ufw, fail2ban
-  └── Go, Java 21, Node.js/nvm, Python/pyenv, gh
+  └── Go, Java 25, Node.js/nvm, Python/pyenv, gh
 ```
 
 ## Design Decisions
