@@ -143,6 +143,48 @@ echo ""
 print_status "Updating system packages..."
 apt_update_retry && apt upgrade -y
 
+# ============================================================
+# Register all third-party apt repos up front so one apt update
+# covers them all. Without this, each install section would trigger
+# its own apt update (Adoptium, GitHub CLI, Microsoft, Caddy) —
+# that's 4 extra mirror round-trips for no benefit.
+# ============================================================
+print_status "Registering third-party apt repos (Adoptium, GitHub CLI, Microsoft, Caddy)..."
+
+# Prereqs for registering + verifying third-party repos
+apt install -y curl gnupg ca-certificates apt-transport-https \
+    debian-keyring debian-archive-keyring
+
+# Adoptium (Temurin JDK) — provides temurin-<N>-jdk packages
+curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public \
+    | gpg --dearmor --yes -o /etc/apt/keyrings/adoptium.gpg
+echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(lsb_release -cs) main" \
+    > /etc/apt/sources.list.d/adoptium.list
+
+# GitHub CLI — provides `gh`
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list
+
+# Microsoft — provides powershell (the packages-microsoft-prod.deb
+# writes /etc/apt/sources.list.d/microsoft-prod.list itself)
+UBUNTU_VER_ID=$(. /etc/os-release && echo "$VERSION_ID")
+curl -fsSL "https://packages.microsoft.com/config/ubuntu/${UBUNTU_VER_ID}/packages-microsoft-prod.deb" \
+    -o /tmp/packages-microsoft-prod.deb
+apt install -y /tmp/packages-microsoft-prod.deb
+rm -f /tmp/packages-microsoft-prod.deb
+
+# Caddy (Cloudsmith stable) — provides caddy
+curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+    | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+    > /etc/apt/sources.list.d/caddy-stable.list
+
+# One update for all four repos
+apt_update_retry
+
 # --- Save pre-existing package list (first run only) ---
 MANIFEST_DIR="/var/lib/vps-setup"
 mkdir -p "$MANIFEST_DIR"
@@ -775,10 +817,8 @@ print_status "Go ${GO_VERSION} + gopls, delve, golangci-lint, air, goimports, go
 print_warning "Run 'ctm install' as the dev user to finish ctm shell integration (one-time, interactive)"
 
 # ── Java (Eclipse Temurin via Adoptium, pinned meta-package) ──
+# Adoptium apt repo was registered up top; here we just install.
 print_status "Installing Java (${TEMURIN_PKG})..."
-curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor --yes -o /etc/apt/keyrings/adoptium.gpg
-echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(lsb_release -cs) main" > /etc/apt/sources.list.d/adoptium.list
-apt_update_retry
 apt install -y "$TEMURIN_PKG"
 
 # Install Maven (apt handles version) and pinned Gradle
@@ -972,11 +1012,8 @@ rm /tmp/rtk.deb
 print_status "rtk ${RTK_VERSION} installed"
 
 # ── GitHub CLI (gh) — always add repo + install/upgrade ──
+# GitHub CLI apt repo was registered up top; here we just install.
 print_status "Installing/updating GitHub CLI..."
-curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
-apt_update_retry
 apt install -y gh
 print_status "GitHub CLI (gh) installed"
 
@@ -989,13 +1026,7 @@ print_status "GitHub CLI (gh) installed"
 # --channel. PowerShell stays on apt since Ubuntu doesn't ship it.
 print_status "Installing .NET ${DOTNET_LTS_VERSION} LTS + PowerShell..."
 
-# Add Microsoft apt repo (needed for PowerShell)
-UBUNTU_VER_ID=$(. /etc/os-release && echo "$VERSION_ID")
-MS_PROD_DEB="/tmp/packages-microsoft-prod.deb"
-curl -fsSL "https://packages.microsoft.com/config/ubuntu/${UBUNTU_VER_ID}/packages-microsoft-prod.deb" -o "$MS_PROD_DEB"
-apt install -y "$MS_PROD_DEB"
-rm -f "$MS_PROD_DEB"
-apt_update_retry
+# Microsoft apt repo was registered up top; PowerShell is a plain install.
 apt install -y powershell
 
 # .NET SDK via dotnet-install.sh — installs to /usr/share/dotnet, then
@@ -1016,13 +1047,8 @@ print_status ".NET $(/usr/local/bin/dotnet --version 2>/dev/null || echo "${DOTN
 # to a configured domain (no certbot needed). Config: /etc/caddy/Caddyfile.
 # Default install serves a welcome page on :80 until the Caddyfile is
 # edited. UFW already opened 80/tcp + 443/tcp above.
+# Caddy apt repo was registered up top; here we just install + enable.
 print_status "Installing Caddy..."
-apt install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-    | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-    > /etc/apt/sources.list.d/caddy-stable.list
-apt_update_retry
 apt install -y caddy
 systemctl enable caddy
 systemctl restart caddy
