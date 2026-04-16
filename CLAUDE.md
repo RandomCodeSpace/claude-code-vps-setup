@@ -19,7 +19,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
   │   └── fail2ban (bans after 3 failed SSH attempts)
   ├── setup-github (interactive GitHub + SSH signing helper)
   └── Dev Toolchains
-      ├── Go (latest stable + gopls, dlv, golangci-lint, air)
+      ├── Go (pinned + gopls, dlv, golangci-lint, air, goimports, govulncheck, ctm)
       ├── Java 25 Temurin (maven, gradle 8.12, jdtls)
       ├── Node.js LTS via nvm (typescript, tsx, pnpm, yarn, eslint, prettier, ts-language-server)
       ├── Python 3.12 via pyenv (ruff, mypy, black, pytest, poetry, pyright)
@@ -62,7 +62,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 7. **tmux** — mobile-optimized config (mouse on, touch scroll, high contrast status bar, aggressive resize)
 8. **`setup-github`** — interactive helper: GitHub auth, git identity, SSH key upload (auth + signing), SSH-based commit signing
 9. **ssh-agent** — auto-starts in `.bashrc`, persists across tmux panes via `~/.ssh/agent-env`
-10. **Go** — latest stable + gopls, delve, golangci-lint, air
+10. **Go** — pinned stable + gopls, delve, golangci-lint, air, goimports, govulncheck, [ctm](https://github.com/RandomCodeSpace/ctm) (Claude tmux session manager)
 11. **Java 25** — Temurin JDK + Maven + Gradle 8.12 + jdtls (Eclipse JDT Language Server)
 12. **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier, typescript-language-server
 13. **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry, ipython, pyright

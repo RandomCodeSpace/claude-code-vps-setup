@@ -30,53 +30,54 @@ print_error()   { echo -e "${RED}[✗]${NC} $1"; }
 # ============================================================
 
 # Go runtime + tools
-GO_VERSION="go1.23.4"
-GOPLS_VERSION="v0.17.0"
-DELVE_VERSION="v1.23.1"
-GOLANGCI_LINT_VERSION="v1.62.2"
-AIR_VERSION="v1.61.5"
-GOIMPORTS_VERSION="v0.28.0"
-GOVULNCHECK_VERSION="v1.1.3"
+GO_VERSION="go1.26.2"
+GOPLS_VERSION="v0.21.1"
+DELVE_VERSION="v1.26.1"
+GOLANGCI_LINT_VERSION="v2.11.4"   # v2.x — module path is /v2/cmd/golangci-lint
+AIR_VERSION="v1.65.1"
+GOIMPORTS_VERSION="v0.44.0"
+GOVULNCHECK_VERSION="v1.2.0"
+CTM_VERSION="v0.0.4"   # RandomCodeSpace/ctm — tmux session manager for Claude Code
 
 # JVM
 TEMURIN_PKG="temurin-25-jdk"
-GRADLE_VERSION="8.12"
-JDTLS_VERSION="1.40.0"
+GRADLE_VERSION="9.4.1"
+JDTLS_VERSION="1.58.0"
 
 # Node / TypeScript
-NVM_VERSION="v0.40.1"
-NODE_VERSION="22.12.0"
-TS_VERSION="5.7.2"
+NVM_VERSION="v0.40.4"
+NODE_VERSION="24.15.0"   # Node.js 24 LTS (Krypton)
+TS_VERSION="6.0.2"
 TS_NODE_VERSION="10.9.2"
-TSX_VERSION="4.19.2"
-ESLINT_VERSION="9.17.0"
-PRETTIER_VERSION="3.4.2"
-NODE_TYPES_VERSION="22.10.2"
-NODEMON_VERSION="3.1.9"
-PNPM_VERSION="9.15.2"
-YARN_VERSION="1.22.22"
-TS_LSP_VERSION="4.3.3"
-NCU_VERSION="17.1.11"
+TSX_VERSION="4.21.0"
+ESLINT_VERSION="10.2.0"
+PRETTIER_VERSION="3.8.3"
+NODE_TYPES_VERSION="24.12.2"   # Keep major aligned with NODE_VERSION
+NODEMON_VERSION="3.1.14"
+PNPM_VERSION="10.33.0"
+YARN_VERSION="1.22.22"   # Yarn classic; modern yarn is enabled per-project via corepack
+TS_LSP_VERSION="5.1.3"
+NCU_VERSION="21.0.1"
 
 # Python + pip packages
-PYTHON_VERSION="3.12.8"
-RUFF_VERSION="0.8.4"
-MYPY_VERSION="1.13.0"
-BLACK_VERSION="24.10.0"
-ISORT_VERSION="5.13.2"
-PYTEST_VERSION="8.3.4"
+PYTHON_VERSION="3.14.4"   # 3.15 is still in alpha
+RUFF_VERSION="0.15.10"
+MYPY_VERSION="1.20.1"
+BLACK_VERSION="26.3.1"
+ISORT_VERSION="8.0.1"
+PYTEST_VERSION="9.0.3"
 HTTPIE_VERSION="3.2.4"
-POETRY_VERSION="1.8.5"
-PIPENV_VERSION="2024.4.0"
-IPYTHON_VERSION="8.31.0"
-VIRTUALENV_VERSION="20.28.0"
-PYRIGHT_VERSION="1.1.390"
-UV_VERSION="0.5.10"
-PIPX_VERSION="1.7.1"
-PRECOMMIT_VERSION="4.0.1"
+POETRY_VERSION="2.3.4"
+PIPENV_VERSION="2026.5.2"
+IPYTHON_VERSION="9.12.0"
+VIRTUALENV_VERSION="21.2.4"
+PYRIGHT_VERSION="1.1.408"
+UV_VERSION="0.11.7"
+PIPX_VERSION="1.11.1"
+PRECOMMIT_VERSION="4.5.1"
 
 # Miniconda
-MINICONDA_VERSION="py312_24.11.1-0"
+MINICONDA_VERSION="py312_26.1.1-1"
 
 # --- Check root ---
 if [ "$EUID" -ne 0 ]; then
@@ -685,11 +686,14 @@ GOENV
 su - "$DEV_USER" -c "export PATH=/usr/local/go/bin:\$HOME/go/bin:\$PATH && export GOPATH=\$HOME/go && \
     go install golang.org/x/tools/gopls@${GOPLS_VERSION} && \
     go install github.com/go-delve/delve/cmd/dlv@${DELVE_VERSION} && \
-    go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION} && \
+    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION} && \
     go install github.com/air-verse/air@${AIR_VERSION} && \
     go install golang.org/x/tools/cmd/goimports@${GOIMPORTS_VERSION} && \
-    go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
-print_status "Go ${GO_VERSION} + gopls, delve, golangci-lint, air, goimports, govulncheck installed"
+    go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} && \
+    go install github.com/RandomCodeSpace/ctm@${CTM_VERSION}"
+
+print_status "Go ${GO_VERSION} + gopls, delve, golangci-lint, air, goimports, govulncheck, ctm ${CTM_VERSION} installed"
+print_warning "Run 'ctm install' as the dev user to finish ctm shell integration (one-time, interactive)"
 
 # ── Java (Eclipse Temurin via Adoptium, pinned meta-package) ──
 print_status "Installing Java (${TEMURIN_PKG})..."
@@ -893,6 +897,7 @@ GOLANGCI_LINT_VERSION=${GOLANGCI_LINT_VERSION}
 AIR_VERSION=${AIR_VERSION}
 GOIMPORTS_VERSION=${GOIMPORTS_VERSION}
 GOVULNCHECK_VERSION=${GOVULNCHECK_VERSION}
+CTM_VERSION=${CTM_VERSION}
 TEMURIN_PKG=${TEMURIN_PKG}
 GRADLE_VERSION=${GRADLE_VERSION}
 JDTLS_VERSION=${JDTLS_VERSION}
@@ -949,7 +954,7 @@ echo "  Shell      : /bin/bash"
 echo ""
 echo "  DEV TOOLCHAINS (all pinned — bump in VERSIONS block to upgrade)"
 echo "  ─────────────────────────────────────────"
-echo "  Go         : ${GO_VERSION}  (gopls, dlv, golangci-lint, air, goimports, govulncheck)"
+echo "  Go         : ${GO_VERSION}  (gopls, dlv, golangci-lint, air, goimports, govulncheck, ctm ${CTM_VERSION})"
 echo "  Java       : ${TEMURIN_PKG}  (maven, gradle ${GRADLE_VERSION}, jdtls ${JDTLS_VERSION})"
 echo "  Node.js    : ${NODE_VERSION}  (ts ${TS_VERSION}, tsx, pnpm ${PNPM_VERSION}, yarn, ts-language-server, ncu)"
 echo "  Python     : ${PYTHON_VERSION}  (ruff ${RUFF_VERSION}, mypy, pytest, poetry, pyright, uv ${UV_VERSION}, pipx, pre-commit)"
@@ -988,6 +993,9 @@ echo ""
 echo "  4. Set up GitHub + SSH signing:"
 echo "     setup-github"
 echo "     (GitHub auth → git identity → SSH key → SSH commit signing)"
+echo ""
+echo "  5. Finish ctm (Claude Tmux Manager) shell integration:"
+echo "     ctm install"
 echo ""
 echo "  Your SSH public key:"
 echo "     cat ~/.ssh/id_ed25519.pub"

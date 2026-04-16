@@ -42,6 +42,9 @@ claude
 
 # 4. Set up GitHub + SSH signing
 setup-github
+
+# 5. Finish ctm shell integration (one-time)
+ctm install
 ```
 
 `setup-github` handles everything in one interactive flow: GitHub CLI auth, git identity (pulled from your GitHub account), and SSH-based commit signing. The same ed25519 key is uploaded to GitHub as both an auth key and a signing key — GitHub supports SSH-signed commits natively, so no GPG is needed.
@@ -61,7 +64,7 @@ setup-github
 
 All versions are pinned in a single `VERSIONS` block at the top of `secure-vps-setup.sh`. Bump a variable there and rerun the script to upgrade.
 
-- **Go** — gopls, delve, golangci-lint, air, goimports, govulncheck
+- **Go** — gopls, delve, golangci-lint, air, goimports, govulncheck, [ctm](https://github.com/RandomCodeSpace/ctm) (Claude tmux session manager)
 - **Java** — Temurin 25 JDK + Maven + Gradle + jdtls (Eclipse JDT Language Server)
 - **Node.js** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, typescript-language-server, npm-check-updates
 - **Python** — via pyenv + ruff, mypy, black, isort, pytest, poetry, pipenv, ipython, pyright, uv, pipx, pre-commit, httpie
