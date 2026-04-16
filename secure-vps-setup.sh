@@ -23,6 +23,61 @@ print_status()  { echo -e "${GREEN}[✓]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
 print_error()   { echo -e "${RED}[✗]${NC} $1"; }
 
+# ============================================================
+# Pinned versions — bump these to upgrade, then rerun the script.
+# Every install below reinstalls to the pinned version on rerun, so the
+# only source of truth for what's on the machine is this block.
+# ============================================================
+
+# Go runtime + tools
+GO_VERSION="go1.23.4"
+GOPLS_VERSION="v0.17.0"
+DELVE_VERSION="v1.23.1"
+GOLANGCI_LINT_VERSION="v1.62.2"
+AIR_VERSION="v1.61.5"
+GOIMPORTS_VERSION="v0.28.0"
+GOVULNCHECK_VERSION="v1.1.3"
+
+# JVM
+TEMURIN_PKG="temurin-25-jdk"
+GRADLE_VERSION="8.12"
+JDTLS_VERSION="1.40.0"
+
+# Node / TypeScript
+NVM_VERSION="v0.40.1"
+NODE_VERSION="22.12.0"
+TS_VERSION="5.7.2"
+TS_NODE_VERSION="10.9.2"
+TSX_VERSION="4.19.2"
+ESLINT_VERSION="9.17.0"
+PRETTIER_VERSION="3.4.2"
+NODE_TYPES_VERSION="22.10.2"
+NODEMON_VERSION="3.1.9"
+PNPM_VERSION="9.15.2"
+YARN_VERSION="1.22.22"
+TS_LSP_VERSION="4.3.3"
+NCU_VERSION="17.1.11"
+
+# Python + pip packages
+PYTHON_VERSION="3.12.8"
+RUFF_VERSION="0.8.4"
+MYPY_VERSION="1.13.0"
+BLACK_VERSION="24.10.0"
+ISORT_VERSION="5.13.2"
+PYTEST_VERSION="8.3.4"
+HTTPIE_VERSION="3.2.4"
+POETRY_VERSION="1.8.5"
+PIPENV_VERSION="2024.4.0"
+IPYTHON_VERSION="8.31.0"
+VIRTUALENV_VERSION="20.28.0"
+PYRIGHT_VERSION="1.1.390"
+UV_VERSION="0.5.10"
+PIPX_VERSION="1.7.1"
+PRECOMMIT_VERSION="4.0.1"
+
+# Miniconda
+MINICONDA_VERSION="py312_24.11.1-0"
+
 # --- Check root ---
 if [ "$EUID" -ne 0 ]; then
     print_error "Please run as root: sudo bash secure-vps-setup.sh"
@@ -608,9 +663,8 @@ apt install -y build-essential pkg-config libssl-dev \
 ln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true
 ln -sf /usr/bin/batcat /usr/local/bin/bat 2>/dev/null || true
 
-# ── Go (latest stable via official tarball) ─────────────
-print_status "Installing Go..."
-GO_VERSION=$(curl -fsSL "https://go.dev/VERSION?m=text" | head -1)
+# ── Go (pinned tarball from go.dev) ─────────────────────
+print_status "Installing Go ${GO_VERSION}..."
 curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
 rm -rf /usr/local/go
 tar -C /usr/local -xzf /tmp/go.tar.gz
@@ -626,24 +680,26 @@ export GOPATH="$HOME/go"
 # --- Go END ---
 GOENV
 
-# Install common Go tools as dev user
-su - "$DEV_USER" -c 'export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH" && export GOPATH="$HOME/go" && \
-    go install golang.org/x/tools/gopls@latest && \
-    go install github.com/go-delve/delve/cmd/dlv@latest && \
-    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
-    go install github.com/air-verse/air@latest'
-print_status "Go ${GO_VERSION} installed + gopls, delve, golangci-lint, air"
+# Install Go tools as dev user (pinned; `go install pkg@VERSION` replaces
+# any existing binary in $GOPATH/bin on rerun)
+su - "$DEV_USER" -c "export PATH=/usr/local/go/bin:\$HOME/go/bin:\$PATH && export GOPATH=\$HOME/go && \
+    go install golang.org/x/tools/gopls@${GOPLS_VERSION} && \
+    go install github.com/go-delve/delve/cmd/dlv@${DELVE_VERSION} && \
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION} && \
+    go install github.com/air-verse/air@${AIR_VERSION} && \
+    go install golang.org/x/tools/cmd/goimports@${GOIMPORTS_VERSION} && \
+    go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+print_status "Go ${GO_VERSION} + gopls, delve, golangci-lint, air, goimports, govulncheck installed"
 
-# ── Java (Eclipse Temurin JDK 25 LTS via Adoptium) ─────
-print_status "Installing Java (Temurin JDK 25)..."
+# ── Java (Eclipse Temurin via Adoptium, pinned meta-package) ──
+print_status "Installing Java (${TEMURIN_PKG})..."
 curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor --yes -o /etc/apt/keyrings/adoptium.gpg
 echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(lsb_release -cs) main" > /etc/apt/sources.list.d/adoptium.list
 apt update -y
-apt install -y temurin-25-jdk
+apt install -y "$TEMURIN_PKG"
 
-# Install Maven and Gradle
+# Install Maven (apt handles version) and pinned Gradle
 apt install -y maven
-GRADLE_VERSION="8.12"
 curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
 # Clean up old Gradle versions before extracting new
 find /opt -maxdepth 1 -name 'gradle-*' -type d \
@@ -652,71 +708,69 @@ unzip -qo /tmp/gradle.zip -d /opt
 ln -sf "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle
 rm /tmp/gradle.zip
 
-# Install jdtls (Eclipse JDT Language Server) — latest milestone
-print_status "Installing jdtls (Eclipse JDT Language Server)..."
+# Install jdtls (Eclipse JDT Language Server) — pinned milestone
+print_status "Installing jdtls ${JDTLS_VERSION}..."
 JDTLS_INSTALL_DIR="/opt/jdtls"
-JDTLS_MILESTONES_URL="https://download.eclipse.org/jdtls/milestones"
-# Find latest version directory from milestones page
-JDTLS_LATEST_VER=$(curl -fsSL "$JDTLS_MILESTONES_URL/" \
-    | grep -oP 'href="\K[0-9]+\.[0-9]+\.[0-9]+(?=/")' \
-    | sort -V | tail -1)
-if [ -n "$JDTLS_LATEST_VER" ]; then
-    # Get the exact filename from latest.txt
-    JDTLS_FILENAME=$(curl -fsSL "$JDTLS_MILESTONES_URL/$JDTLS_LATEST_VER/latest.txt")
-    if [ -n "$JDTLS_FILENAME" ]; then
-        JDTLS_URL="$JDTLS_MILESTONES_URL/$JDTLS_LATEST_VER/$JDTLS_FILENAME"
-        curl -fsSL "$JDTLS_URL" -o /tmp/jdtls.tar.gz
-        rm -rf "$JDTLS_INSTALL_DIR"
-        mkdir -p "$JDTLS_INSTALL_DIR"
-        tar -xzf /tmp/jdtls.tar.gz -C "$JDTLS_INSTALL_DIR"
-        rm /tmp/jdtls.tar.gz
-        # Create launcher script
-        cat > /usr/local/bin/jdtls << 'JDTLS_LAUNCHER'
+JDTLS_URL_BASE="https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}"
+# The milestone version dir contains a latest.txt pointing at the exact
+# tarball filename (which includes a build timestamp). We pin the version
+# but follow latest.txt within that version dir for the file to download.
+JDTLS_FILENAME=$(curl -fsSL "${JDTLS_URL_BASE}/latest.txt" 2>/dev/null)
+if [ -n "$JDTLS_FILENAME" ]; then
+    curl -fsSL "${JDTLS_URL_BASE}/${JDTLS_FILENAME}" -o /tmp/jdtls.tar.gz
+    rm -rf "$JDTLS_INSTALL_DIR"
+    mkdir -p "$JDTLS_INSTALL_DIR"
+    tar -xzf /tmp/jdtls.tar.gz -C "$JDTLS_INSTALL_DIR"
+    rm /tmp/jdtls.tar.gz
+    cat > /usr/local/bin/jdtls << 'JDTLS_LAUNCHER'
 #!/bin/bash
 exec /opt/jdtls/bin/jdtls "$@"
 JDTLS_LAUNCHER
-        chmod +x /usr/local/bin/jdtls
-        print_status "jdtls ${JDTLS_LATEST_VER} installed to ${JDTLS_INSTALL_DIR}"
-    else
-        print_warning "Could not determine jdtls filename from latest.txt — skipping"
-    fi
+    chmod +x /usr/local/bin/jdtls
+    print_status "jdtls ${JDTLS_VERSION} installed to ${JDTLS_INSTALL_DIR}"
 else
-    print_warning "Could not determine latest jdtls version — skipping"
+    print_warning "Could not fetch jdtls ${JDTLS_VERSION}/latest.txt — skipping"
 fi
 
+JAVA_HOME_PATH="/usr/lib/jvm/${TEMURIN_PKG}-amd64"
 sed -i '/# --- Java START ---/,/# --- Java END ---/d' /home/$DEV_USER/.bashrc
-cat >> /home/$DEV_USER/.bashrc << 'JAVAENV'
+cat >> /home/$DEV_USER/.bashrc << JAVAENV
 
 # --- Java START ---
-export JAVA_HOME="/usr/lib/jvm/temurin-25-jdk-amd64"
-export PATH="$JAVA_HOME/bin:$PATH"
+export JAVA_HOME="${JAVA_HOME_PATH}"
+export PATH="\$JAVA_HOME/bin:\$PATH"
 # --- Java END ---
 JAVAENV
 
-print_status "Java 25 (Temurin) + Maven + Gradle ${GRADLE_VERSION} + jdtls installed"
+print_status "Java (${TEMURIN_PKG}) + Maven + Gradle ${GRADLE_VERSION} + jdtls ${JDTLS_VERSION} installed"
 
 # ── Node.js + TypeScript (via nvm for dev user) ────────
-print_status "Installing Node.js + TypeScript..."
+print_status "Installing Node.js ${NODE_VERSION} + TypeScript ${TS_VERSION}..."
 
-# Install/update nvm for dev user (installer is idempotent)
-su - "$DEV_USER" -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash'
+# Install/update nvm for dev user (installer clones to the pinned tag)
+su - "$DEV_USER" -c "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh | bash"
 
-# Install latest LTS Node + global packages
-su - "$DEV_USER" -c 'export NVM_DIR="$HOME/.nvm" && \
-    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && \
-    nvm install --lts && \
-    nvm alias default lts/* && \
-    npm install -g typescript ts-node tsx \
-    eslint prettier \
-    @types/node \
-    nodemon \
-    pnpm \
-    yarn \
-    typescript-language-server'
+# Install pinned Node + pinned global packages. npm install -g pkg@VERSION
+# replaces any previously-installed version, so this is safe to rerun.
+su - "$DEV_USER" -c "export NVM_DIR=\$HOME/.nvm && \
+    [ -s \$NVM_DIR/nvm.sh ] && . \$NVM_DIR/nvm.sh && \
+    nvm install ${NODE_VERSION} && \
+    nvm alias default ${NODE_VERSION} && \
+    nvm use default && \
+    npm install -g \
+        typescript@${TS_VERSION} \
+        ts-node@${TS_NODE_VERSION} \
+        tsx@${TSX_VERSION} \
+        eslint@${ESLINT_VERSION} \
+        prettier@${PRETTIER_VERSION} \
+        @types/node@${NODE_TYPES_VERSION} \
+        nodemon@${NODEMON_VERSION} \
+        pnpm@${PNPM_VERSION} \
+        yarn@${YARN_VERSION} \
+        typescript-language-server@${TS_LSP_VERSION} \
+        npm-check-updates@${NCU_VERSION}"
 
-# Get installed Node version for display
-NODE_VER=$(su - "$DEV_USER" -c 'export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && node --version' 2>/dev/null || echo "LTS")
-print_status "Node.js ${NODE_VER} + TypeScript + pnpm + yarn + ts-language-server installed (via nvm)"
+print_status "Node.js ${NODE_VERSION} + TS ${TS_VERSION} + pnpm ${PNPM_VERSION} + yarn ${YARN_VERSION} + ts-language-server ${TS_LSP_VERSION} + ncu ${NCU_VERSION} installed"
 
 # ── Python (system + pyenv for version management) ─────
 print_status "Installing Python toolchain..."
@@ -746,33 +800,40 @@ fi
 # --- Python END ---
 PYENV
 
-# Install latest Python 3.12 via pyenv + global tools
-su - "$DEV_USER" -c 'export PYENV_ROOT="$HOME/.pyenv" && \
-    export PATH="$PYENV_ROOT/bin:$PATH" && \
-    eval "$(pyenv init -)" && \
-    pyenv install -s 3.12 && \
-    pyenv global 3.12 && \
+# Install pinned Python via pyenv + pinned pip packages.
+# - `pyenv install -s` skips if the exact patch is already built; bumping
+#   PYTHON_VERSION causes a fresh build on rerun.
+# - `pip install --upgrade pkg==VERSION` forces the pinned version even if
+#   a different one is already present.
+su - "$DEV_USER" -c "export PYENV_ROOT=\$HOME/.pyenv && \
+    export PATH=\$PYENV_ROOT/bin:\$PATH && \
+    eval \"\$(pyenv init -)\" && \
+    pyenv install -s ${PYTHON_VERSION} && \
+    pyenv global ${PYTHON_VERSION} && \
     pip install --upgrade pip && \
-    pip install \
-        ruff \
-        mypy \
-        black \
-        isort \
-        pytest \
-        httpie \
-        poetry \
-        pipenv \
-        ipython \
-        virtualenv \
-        pyright'
+    pip install --upgrade \
+        ruff==${RUFF_VERSION} \
+        mypy==${MYPY_VERSION} \
+        black==${BLACK_VERSION} \
+        isort==${ISORT_VERSION} \
+        pytest==${PYTEST_VERSION} \
+        httpie==${HTTPIE_VERSION} \
+        poetry==${POETRY_VERSION} \
+        pipenv==${PIPENV_VERSION} \
+        ipython==${IPYTHON_VERSION} \
+        virtualenv==${VIRTUALENV_VERSION} \
+        pyright==${PYRIGHT_VERSION} \
+        uv==${UV_VERSION} \
+        pipx==${PIPX_VERSION} \
+        pre-commit==${PRECOMMIT_VERSION}"
 
-PYTHON_VER=$(su - "$DEV_USER" -c 'export PYENV_ROOT="$HOME/.pyenv" && export PATH="$PYENV_ROOT/bin:$PATH" && eval "$(pyenv init -)" && python --version' 2>/dev/null || echo "3.12")
-print_status "Python ${PYTHON_VER} + ruff, mypy, black, pytest, poetry, pyright installed (via pyenv)"
+print_status "Python ${PYTHON_VERSION} + ruff ${RUFF_VERSION}, mypy ${MYPY_VERSION}, pytest ${PYTEST_VERSION}, poetry ${POETRY_VERSION}, pyright ${PYRIGHT_VERSION}, uv ${UV_VERSION}, pipx ${PIPX_VERSION}, pre-commit ${PRECOMMIT_VERSION} installed (via pyenv)"
 
-# ── Miniconda (system-wide at /opt/miniconda3) ──────────
-print_status "Installing Miniconda (system-wide)..."
-MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+# ── Miniconda (system-wide at /opt/miniconda3, pinned installer) ──
+print_status "Installing Miniconda ${MINICONDA_VERSION} (system-wide)..."
+MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-${MINICONDA_VERSION}-Linux-x86_64.sh"
 curl -fsSL "$MINICONDA_URL" -o /tmp/miniconda.sh
+# -b batch, -u update (replaces existing install at the prefix)
 bash /tmp/miniconda.sh -b -u -p /opt/miniconda3
 rm /tmp/miniconda.sh
 
@@ -825,11 +886,31 @@ rm -f "$CURRENT_PKGS"
 cat > "$MANIFEST_DIR/manifest-meta.txt" << METAMANIFEST
 DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 USER=$DEV_USER
-GO_VERSION=${GO_VERSION:-unknown}
-GRADLE_VERSION=${GRADLE_VERSION:-unknown}
-NODE_VERSION=${NODE_VER:-unknown}
-PYTHON_VERSION=${PYTHON_VER:-unknown}
-MINICONDA=system-wide
+GO_VERSION=${GO_VERSION}
+GOPLS_VERSION=${GOPLS_VERSION}
+DELVE_VERSION=${DELVE_VERSION}
+GOLANGCI_LINT_VERSION=${GOLANGCI_LINT_VERSION}
+AIR_VERSION=${AIR_VERSION}
+GOIMPORTS_VERSION=${GOIMPORTS_VERSION}
+GOVULNCHECK_VERSION=${GOVULNCHECK_VERSION}
+TEMURIN_PKG=${TEMURIN_PKG}
+GRADLE_VERSION=${GRADLE_VERSION}
+JDTLS_VERSION=${JDTLS_VERSION}
+NVM_VERSION=${NVM_VERSION}
+NODE_VERSION=${NODE_VERSION}
+TS_VERSION=${TS_VERSION}
+PNPM_VERSION=${PNPM_VERSION}
+YARN_VERSION=${YARN_VERSION}
+NCU_VERSION=${NCU_VERSION}
+PYTHON_VERSION=${PYTHON_VERSION}
+RUFF_VERSION=${RUFF_VERSION}
+MYPY_VERSION=${MYPY_VERSION}
+POETRY_VERSION=${POETRY_VERSION}
+PYRIGHT_VERSION=${PYRIGHT_VERSION}
+UV_VERSION=${UV_VERSION}
+PIPX_VERSION=${PIPX_VERSION}
+PRECOMMIT_VERSION=${PRECOMMIT_VERSION}
+MINICONDA_VERSION=${MINICONDA_VERSION}
 METAMANIFEST
 print_status "Package manifest written to $MANIFEST_DIR/"
 
@@ -866,13 +947,13 @@ echo "  Workspace  : /home/dev/projects"
 echo "  Sudo       : DISABLED (locked down)"
 echo "  Shell      : /bin/bash"
 echo ""
-echo "  DEV TOOLCHAINS"
+echo "  DEV TOOLCHAINS (all pinned — bump in VERSIONS block to upgrade)"
 echo "  ─────────────────────────────────────────"
-echo "  Go         : /usr/local/go  (go, gopls, dlv, air)"
-echo "  Java       : Temurin 25     (maven, gradle, jdtls)"
-echo "  Node.js    : via nvm        (ts, tsx, pnpm, yarn, ts-language-server)"
-echo "  Python     : via pyenv 3.12 (ruff, mypy, pytest, poetry, pyright)"
-echo "  Miniconda  : /opt/miniconda3 (auto_activate_base=false)"
+echo "  Go         : ${GO_VERSION}  (gopls, dlv, golangci-lint, air, goimports, govulncheck)"
+echo "  Java       : ${TEMURIN_PKG}  (maven, gradle ${GRADLE_VERSION}, jdtls ${JDTLS_VERSION})"
+echo "  Node.js    : ${NODE_VERSION}  (ts ${TS_VERSION}, tsx, pnpm ${PNPM_VERSION}, yarn, ts-language-server, ncu)"
+echo "  Python     : ${PYTHON_VERSION}  (ruff ${RUFF_VERSION}, mypy, pytest, poetry, pyright, uv ${UV_VERSION}, pipx, pre-commit)"
+echo "  Miniconda  : ${MINICONDA_VERSION}  (/opt/miniconda3, auto_activate_base=false)"
 echo "  Extras     : ripgrep, fd, bat, jq, htop, shellcheck"
 echo "  DEV TOOLS"
 echo "  ─────────────────────────────────────────"
