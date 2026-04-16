@@ -253,6 +253,9 @@ ufw default allow outgoing
 # Allow SSH (important! don't lock yourself out)
 ufw allow 22/tcp comment 'SSH'
 
+# Allow mosh (UDP 60000-61000, one port per concurrent session)
+ufw allow 60000:61000/udp comment 'mosh'
+
 # Allow HTTP/HTTPS (uncomment if you run a web server)
 # ufw allow 80/tcp comment 'HTTP'
 # ufw allow 443/tcp comment 'HTTPS'
@@ -261,7 +264,7 @@ ufw allow 22/tcp comment 'SSH'
 echo "y" | ufw enable
 ufw status verbose
 
-print_status "UFW enabled — SSH (port 22) allowed, all other incoming blocked"
+print_status "UFW enabled — SSH (22/tcp) + mosh (60000-61000/udp) allowed, all other incoming blocked"
 print_warning "If you need other ports (80, 443, etc.), run: sudo ufw allow <port>/tcp"
 
 # ============================================================
@@ -292,6 +295,23 @@ systemctl enable fail2ban
 systemctl restart fail2ban
 
 print_status "fail2ban installed — bans IPs after 3 failed SSH attempts for 1 hour"
+
+# ============================================================
+# 5. mosh - Mobile shell (survives roaming / flaky connections)
+# ============================================================
+# Mosh initiates over SSH (existing key auth — no extra credentials) and
+# then switches to UDP on a port in the 60000-61000 range that UFW
+# opened above. Client connects with: mosh dev@<vps-ip>
+print_status "Installing mosh..."
+apt install -y mosh
+# Best-effort ensure UTF-8 locale (mosh refuses to start without it)
+if ! locale -a 2>/dev/null | grep -qiE '^(C\.UTF-8|en_US\.utf-?8)$'; then
+    apt install -y locales
+    locale-gen en_US.UTF-8 2>/dev/null || true
+    update-locale LANG=en_US.UTF-8 2>/dev/null || true
+fi
+print_status "mosh installed — connect with: mosh ${DEV_USER}@<vps-ip>"
+
 # ============================================================
 # 6. tmux - Session Persistence (optimized for Termius mobile)
 # ============================================================
@@ -955,8 +975,9 @@ echo "  SECURITY"
 echo "  ─────────────────────────────────────────"
 echo "  ClamAV     : Active — daily scans at midnight"
 echo "  rkhunter   : Active — weekly scans"
-echo "  UFW        : Active — only SSH (22) open"
+echo "  UFW        : Active — SSH (22/tcp) + mosh (60000-61000/udp) open"
 echo "  fail2ban   : Active — SSH brute-force protection"
+echo "  mosh       : Installed — connect with: mosh ${DEV_USER}@<vps-ip>"
 echo ""
 echo "  USER: dev"
 echo "  ─────────────────────────────────────────"
@@ -993,8 +1014,9 @@ echo ""
 echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  NEXT STEPS (run these manually):"
 echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  1. Switch to dev user:"
-echo "     su - dev"
+echo "  1. Connect as the dev user (ssh or mosh — mosh survives roaming):"
+echo "     ssh  dev@<vps-ip>"
+echo "     mosh dev@<vps-ip>     # install mosh locally first"
 echo ""
 echo "  2. Start tmux and launch Claude Code:"
 echo "     tmux new -s claude"

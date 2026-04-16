@@ -31,8 +31,9 @@ All three are safe to rerun — every install step replaces the pinned version o
 ## Post-Install
 
 ```bash
-# 1. Switch to dev user
-su - dev
+# 1. Connect as the dev user (ssh or mosh — mosh survives roaming / flaky Wi-Fi)
+ssh  dev@<vps-ip>
+# mosh dev@<vps-ip>   # install mosh locally; uses your SSH key, no extra auth
 
 # 2. Start tmux and launch Claude Code
 tmux new -s claude
@@ -51,11 +52,12 @@ ctm install
 
 ## What Gets Installed
 
-### Security
+### Security & Connectivity
 - **ClamAV** — antivirus daemon + daily scans
 - **rkhunter** — rootkit scanner + weekly scans
-- **ufw** — firewall (only SSH port 22 open)
+- **ufw** — firewall (SSH 22/tcp + mosh 60000-61000/udp)
 - **fail2ban** — bans IPs after 3 failed SSH attempts
+- **mosh** — mobile shell for flaky/roaming connections (uses your SSH key, no extra auth)
 
 ### Terminal
 - **tmux** — mobile-optimized (mouse, touch scroll, aggressive resize, 50k scrollback, Termius tab titles)
