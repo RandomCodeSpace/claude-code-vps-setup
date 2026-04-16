@@ -352,12 +352,17 @@ TMUX
 
 chown $DEV_USER:$DEV_USER /home/$DEV_USER/.tmux.conf
 
-# ── setup-github: interactive GitHub/SSH/GPG setup ───────
+# ── setup-github: interactive GitHub + SSH signing setup ─
 mkdir -p /home/$DEV_USER/.local/bin
 cat > /home/$DEV_USER/.local/bin/setup-github << 'SETUPGH'
 #!/bin/bash
 # ─────────────────────────────────────────────────────────
-# setup-github — Interactive GitHub, SSH & GPG setup
+# setup-github — Interactive GitHub + SSH signing setup
+#
+# Uses the same ed25519 SSH key for both authentication and
+# commit signing. GitHub accepts SSH-signed commits natively
+# (no GPG required).
+#
 # Run once after VPS provisioning. Safe to rerun.
 # ─────────────────────────────────────────────────────────
 
@@ -375,7 +380,7 @@ err()  { echo -e "${RED}[✗]${NC} $1"; }
 info() { echo -e "${CYAN}[→]${NC} $1"; }
 
 echo ""
-echo -e "${BOLD}GitHub, SSH & GPG Setup${NC}"
+echo -e "${BOLD}GitHub + SSH Signing Setup${NC}"
 echo "─────────────────────────────────────────"
 echo ""
 
@@ -389,12 +394,21 @@ else
     info "Logging in to GitHub..."
     echo -e "${DIM}A browser URL will be shown — open it on any device to authenticate.${NC}"
     echo ""
-    if ! gh auth login --git-protocol ssh --web; then
+    # Request admin:public_key + admin:ssh_signing_key so we can upload both key types
+    if ! gh auth login --git-protocol ssh --web \
+            --scopes 'admin:public_key,admin:ssh_signing_key'; then
         err "GitHub login failed. Run 'setup-github' again to retry."
         exit 1
     fi
     GH_USER=$(gh api user --jq .login 2>/dev/null)
     ok "Authenticated as ${BOLD}$GH_USER${NC}"
+fi
+
+# Ensure we have the signing-key scope even if the user was already logged in
+if ! gh auth status 2>&1 | grep -q 'admin:ssh_signing_key'; then
+    info "Requesting admin:ssh_signing_key scope for commit signing..."
+    gh auth refresh -h github.com -s admin:ssh_signing_key || \
+        warn "Could not add signing-key scope — signing-key upload may fail"
 fi
 echo ""
 
@@ -436,7 +450,7 @@ git config --global user.email "$INPUT_EMAIL"
 ok "Git identity: $INPUT_NAME <$INPUT_EMAIL>"
 echo ""
 
-# ── Step 3: Upload SSH key to GitHub ──────────────────────
+# ── Step 3: SSH key exists ────────────────────────────────
 echo -e "${BOLD}Step 3: SSH Key${NC}"
 
 SSH_PUB="$HOME/.ssh/id_ed25519.pub"
@@ -447,106 +461,61 @@ if [ ! -f "$SSH_PUB" ]; then
 fi
 
 KEY_TITLE="VPS ($(hostname))"
-# Check if this key is already on GitHub
 LOCAL_FP=$(ssh-keygen -lf "$SSH_PUB" 2>/dev/null | awk '{print $2}')
-EXISTING=$(gh ssh-key list 2>/dev/null | grep "$LOCAL_FP" || true)
+ok "Local key: $LOCAL_FP"
 
-if [ -n "$EXISTING" ]; then
-    ok "SSH key already on GitHub"
+# ── Step 4: Upload as AUTHENTICATION key ──────────────────
+if gh ssh-key list 2>/dev/null | grep -q "$LOCAL_FP"; then
+    ok "Auth key already on GitHub"
 else
-    info "Uploading SSH key to GitHub..."
+    info "Uploading SSH auth key to GitHub..."
     if gh ssh-key add "$SSH_PUB" --title "$KEY_TITLE"; then
-        ok "SSH key uploaded: $KEY_TITLE"
+        ok "Auth key uploaded: $KEY_TITLE"
     else
-        err "Failed to upload SSH key. You can do it manually:"
+        err "Failed to upload auth key. Manually:"
         echo "  gh ssh-key add $SSH_PUB --title \"$KEY_TITLE\""
     fi
 fi
-echo ""
 
-# ── Step 4: GPG key (optional) ────────────────────────────
-echo -e "${BOLD}Step 4: GPG Signing (optional)${NC}"
-
-GPG_KEY_ID=""
-EXISTING_KEYS=$(gpg --list-secret-keys --keyid-format long 2>/dev/null | grep -oP 'sec\s+ed25519/\K[A-F0-9]+' || true)
-
-if [ -n "$EXISTING_KEYS" ]; then
-    GPG_KEY_ID=$(echo "$EXISTING_KEYS" | head -1)
-    GPG_UID=$(gpg --list-secret-keys --keyid-format long "$GPG_KEY_ID" 2>/dev/null | grep uid | head -1 | sed 's/.*] //')
-    ok "Existing GPG key found: $GPG_KEY_ID"
-    echo -e "  ${DIM}$GPG_UID${NC}"
-    echo ""
-    read -rp "$(echo -e "${CYAN}Use this key for commit signing? [Y/n]:${NC} ")" USE_EXISTING
-    if [[ "$USE_EXISTING" =~ ^[Nn] ]]; then
-        GPG_KEY_ID=""
-    fi
-fi
-
-if [ -z "$GPG_KEY_ID" ]; then
-    read -rp "$(echo -e "${CYAN}Generate a new GPG key for commit signing? [Y/n]:${NC} ")" GEN_GPG
-    if [[ ! "$GEN_GPG" =~ ^[Nn] ]]; then
-        GPG_EMAIL="$INPUT_EMAIL"
-        info "Generating GPG key for $INPUT_NAME <$GPG_EMAIL>..."
-        echo -e "${DIM}You will be prompted for a passphrase (can be empty).${NC}"
-
-        gpg --batch --gen-key <<GPGGEN
-%no-protection
-Key-Type: eddsa
-Key-Curve: ed25519
-Name-Real: $INPUT_NAME
-Name-Email: $GPG_EMAIL
-Expire-Date: 0
-%commit
-GPGGEN
-
-        GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format long 2>/dev/null | grep -oP 'sec\s+ed25519/\K[A-F0-9]+' | tail -1)
-
-        if [ -n "$GPG_KEY_ID" ]; then
-            ok "GPG key generated: $GPG_KEY_ID"
-        else
-            err "GPG key generation failed."
-        fi
+# ── Step 5: Upload as SIGNING key (same key, separate entry) ──
+if gh ssh-key list --type signing 2>/dev/null | grep -q "$LOCAL_FP"; then
+    ok "Signing key already on GitHub"
+else
+    info "Uploading SSH signing key to GitHub..."
+    if gh ssh-key add "$SSH_PUB" --title "$KEY_TITLE (signing)" --type signing; then
+        ok "Signing key uploaded: $KEY_TITLE (signing)"
     else
-        warn "Commits will NOT be signed. Run 'setup-github' again to enable signing."
+        err "Failed to upload signing key. Manually:"
+        echo "  gh ssh-key add $SSH_PUB --title \"$KEY_TITLE (signing)\" --type signing"
     fi
 fi
 echo ""
 
-# ── Step 5: Git signing config ────────────────────────────
-if [ -n "$GPG_KEY_ID" ]; then
-    echo -e "${BOLD}Step 5: Git Signing Config${NC}"
+# ── Step 6: Configure git for SSH signing ─────────────────
+echo -e "${BOLD}Step 4: Git SSH Signing Config${NC}"
 
-    git config --global user.signingkey "$GPG_KEY_ID"
-    git config --global commit.gpgsign true
-    git config --global tag.gpgsign true
-    ok "Git configured: sign commits & tags with $GPG_KEY_ID"
+# Drop any stale GPG-based signing config from previous installs
+git config --global --unset-all gpg.program 2>/dev/null || true
 
-    # Warn if GPG email doesn't match git email
-    GPG_EMAILS=$(gpg --list-secret-keys --keyid-format long "$GPG_KEY_ID" 2>/dev/null | grep -oP '<\K[^>]+')
-    if ! echo "$GPG_EMAILS" | grep -qF "$INPUT_EMAIL"; then
-        warn "GPG key email ($GPG_EMAILS) doesn't match git email ($INPUT_EMAIL)"
-        warn "GitHub may show commits as 'Unverified'. Consider matching them."
-    fi
-    echo ""
+git config --global gpg.format ssh
+git config --global user.signingkey "$SSH_PUB"
+git config --global commit.gpgsign true
+git config --global tag.gpgsign true
 
-    # ── Step 6: Upload GPG key to GitHub ──────────────────
-    echo -e "${BOLD}Step 6: Upload GPG Key to GitHub${NC}"
+# Allowed signers file lets `git log --show-signature` verify local commits
+ALLOWED_SIGNERS="$HOME/.ssh/allowed_signers"
+PUBKEY_CONTENT=$(cat "$SSH_PUB")
+touch "$ALLOWED_SIGNERS"
+chmod 600 "$ALLOWED_SIGNERS"
+# Remove any prior entry for this email, then append fresh
+grep -v "^$INPUT_EMAIL " "$ALLOWED_SIGNERS" > "$ALLOWED_SIGNERS.tmp" 2>/dev/null || true
+mv "$ALLOWED_SIGNERS.tmp" "$ALLOWED_SIGNERS" 2>/dev/null || true
+echo "$INPUT_EMAIL $PUBKEY_CONTENT" >> "$ALLOWED_SIGNERS"
+git config --global gpg.ssh.allowedSignersFile "$ALLOWED_SIGNERS"
 
-    GPG_FP=$(gpg --list-secret-keys --with-colons "$GPG_KEY_ID" 2>/dev/null | awk -F: '/^fpr:/{print $10; exit}')
-    EXISTING_GH_GPG=$(gh gpg-key list 2>/dev/null | grep "${GPG_FP:-$GPG_KEY_ID}" || true)
-    if [ -n "$EXISTING_GH_GPG" ]; then
-        ok "GPG key already on GitHub"
-    else
-        info "Uploading GPG key to GitHub..."
-        if gpg --armor --export "$GPG_KEY_ID" | gh gpg-key add -; then
-            ok "GPG key uploaded to GitHub"
-        else
-            err "Failed to upload GPG key. You can do it manually:"
-            echo "  gpg --armor --export $GPG_KEY_ID | gh gpg-key add -"
-        fi
-    fi
-    echo ""
-fi
+ok "Git configured: sign commits & tags with SSH key"
+ok "Allowed signers: $ALLOWED_SIGNERS"
+echo ""
 
 # ── Verify ────────────────────────────────────────────────
 echo -e "${BOLD}Summary${NC}"
@@ -554,12 +523,8 @@ echo "────────────────────────�
 echo -e "  GitHub user : ${GREEN}$GH_USER${NC}"
 echo -e "  Git name    : $INPUT_NAME"
 echo -e "  Git email   : $INPUT_EMAIL"
-echo -e "  SSH key     : $(ssh-keygen -lf "$SSH_PUB" 2>/dev/null | awk '{print $2}')"
-if [ -n "$GPG_KEY_ID" ]; then
-    echo -e "  GPG key     : $GPG_KEY_ID (signing ${GREEN}enabled${NC})"
-else
-    echo -e "  GPG signing : ${DIM}not configured${NC}"
-fi
+echo -e "  SSH key     : $LOCAL_FP"
+echo -e "  Signing     : ${GREEN}SSH${NC} (same key, uploaded as signing on GitHub)"
 echo ""
 
 info "Testing SSH connection to GitHub..."
@@ -618,26 +583,9 @@ fi
 # --- SSH Agent END ---
 SSHAGENT
 
-# GPG agent config for dev user (always update)
-mkdir -p /home/$DEV_USER/.gnupg
-chmod 700 /home/$DEV_USER/.gnupg
-cat > /home/$DEV_USER/.gnupg/gpg-agent.conf << 'GPGAGENT'
-default-cache-ttl 28800
-max-cache-ttl 28800
-pinentry-program /usr/bin/pinentry-tty
-GPGAGENT
-chown $DEV_USER:$DEV_USER /home/$DEV_USER/.gnupg/gpg-agent.conf
-chmod 600 /home/$DEV_USER/.gnupg/gpg-agent.conf
-chown -R $DEV_USER:$DEV_USER /home/$DEV_USER/.gnupg
-print_status "gpg-agent configured (8-hour cache, tty pinentry)"
-
+# Commit signing is done by SSH (git gpg.format ssh), configured by setup-github.
+# Clean up any GPG-agent plumbing left behind by previous installs.
 sed -i '/# --- GPG Agent START ---/,/# --- GPG Agent END ---/d' /home/$DEV_USER/.bashrc
-cat >> /home/$DEV_USER/.bashrc << 'GPGENV'
-
-# --- GPG Agent START ---
-export GPG_TTY=$(tty)
-# --- GPG Agent END ---
-GPGENV
 
 chown -R $DEV_USER:$DEV_USER /home/$DEV_USER/.local
 chown $DEV_USER:$DEV_USER /home/$DEV_USER/.bashrc
@@ -849,8 +797,7 @@ apt install -y \
     sqlite3 \
     redis-tools \
     postgresql-client \
-    inotify-tools \
-    pinentry-tty
+    inotify-tools
 
 # ── GitHub CLI (gh) — always add repo + install/upgrade ──
 print_status "Installing/updating GitHub CLI..."
@@ -955,9 +902,9 @@ echo ""
 echo "  3. First time only - authenticate Claude Code:"
 echo "     (follow browser prompts)"
 echo ""
-echo "  4. Set up GitHub, SSH & GPG:"
+echo "  4. Set up GitHub + SSH signing:"
 echo "     setup-github"
-echo "     (GitHub auth → git identity → SSH key → GPG signing)"
+echo "     (GitHub auth → git identity → SSH key → SSH commit signing)"
 echo ""
 echo "  Your SSH public key:"
 echo "     cat ~/.ssh/id_ed25519.pub"

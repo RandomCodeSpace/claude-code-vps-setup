@@ -17,7 +17,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
   │   ├── rkhunter (rootkit scanner, weekly scans)
   │   ├── ufw (firewall, only port 22 open)
   │   └── fail2ban (bans after 3 failed SSH attempts)
-  ├── setup-github (interactive GitHub/SSH/GPG setup helper)
+  ├── setup-github (interactive GitHub + SSH signing helper)
   └── Dev Toolchains
       ├── Go (latest stable + gopls, dlv, golangci-lint, air)
       ├── Java 25 Temurin (maven, gradle 8.12, jdtls)
@@ -45,7 +45,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 | Java | Temurin 25 LTS | Free, open source JDK from Adoptium |
 | Known hosts | Disabled | Both root and dev — no SSH prompts |
 | SSH key | ed25519 (no passphrase) | Access already gated by SSH login to VPS |
-| GPG | Default-on, user-generated | Interactive setup via `setup-github`, signing enabled by default |
+| Commit signing | SSH (same ed25519 key as auth) | One key for auth + signing; GitHub supports SSH-signed commits natively, no GPG needed |
 | Git identity | From GitHub (no placeholders) | Set by `setup-github` via `gh api user` |
 | Language servers | gopls, jdtls, pyright, ts-language-server | Full LSP support for Go, Java, Python, TypeScript |
 | Miniconda | System-wide (/opt/miniconda3) | Conda envs without conflicting with pyenv; no auto-activate |
@@ -60,17 +60,16 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 5. **ufw** — firewall, deny all incoming except SSH (22)
 6. **fail2ban** — bans IPs after 3 failed SSH attempts for 1 hour
 7. **tmux** — mobile-optimized config (mouse on, touch scroll, high contrast status bar, aggressive resize)
-8. **`setup-github`** — interactive helper: GitHub auth, git identity, SSH key upload, GPG signing
+8. **`setup-github`** — interactive helper: GitHub auth, git identity, SSH key upload (auth + signing), SSH-based commit signing
 9. **ssh-agent** — auto-starts in `.bashrc`, persists across tmux panes via `~/.ssh/agent-env`
-10. **gpg-agent** — 8-hour cache, tty pinentry, `GPG_TTY` exported in `.bashrc`
-11. **Go** — latest stable + gopls, delve, golangci-lint, air
-12. **Java 25** — Temurin JDK + Maven + Gradle 8.12 + jdtls (Eclipse JDT Language Server)
-13. **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier, typescript-language-server
-14. **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry, ipython, pyright
-15. **Miniconda** — system-wide at /opt/miniconda3, conda init for dev user, auto_activate_base=false
-16. **CLI tools** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, pinentry-tty
-17. **GitHub CLI** — gh
-18. **Claude Code** — native installer, installed for dev user
+10. **Go** — latest stable + gopls, delve, golangci-lint, air
+11. **Java 25** — Temurin JDK + Maven + Gradle 8.12 + jdtls (Eclipse JDT Language Server)
+12. **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier, typescript-language-server
+13. **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry, ipython, pyright
+14. **Miniconda** — system-wide at /opt/miniconda3, conda init for dev user, auto_activate_base=false
+15. **CLI tools** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client
+16. **GitHub CLI** — gh
+17. **Claude Code** — native installer, installed for dev user
 
 ### Upgrade-by-Rerun
 Script is safe to rerun and **updates everything on rerun**:
@@ -79,10 +78,9 @@ Script is safe to rerun and **updates everything on rerun**:
 - nvm installer is idempotent — always runs to pick up updates
 - pyenv runs `pyenv update` if already installed, fresh install otherwise
 - GitHub CLI repo is always added — `apt install` handles upgrades
-- Root SSH config and gpg-agent.conf are always overwritten
+- Root SSH config is always overwritten
 - Old Gradle versions are cleaned up before extracting new
 - `pyenv install -s` skips if Python version already installed
-- GPG key imports use `--yes` flag for silent overwrite
 - User creation checks `id` before creating
 - UFW silently ignores duplicate rules
 - Package manifest saved to `/var/lib/vps-setup/` for reset script
@@ -104,7 +102,7 @@ claude
 
 # 3. Authenticate Claude Code (first time only — follow browser prompts)
 
-# 4. Set up GitHub, SSH & GPG (interactive — handles gh auth, SSH key upload, GPG)
+# 4. Set up GitHub + SSH signing (interactive — gh auth, SSH key upload, commit signing)
 setup-github
 
 # 5. (Optional) Disable root SSH once dev access confirmed
@@ -117,13 +115,15 @@ sudo systemctl restart sshd
 Interactive post-install helper that configures GitHub access in one command. Run once after provisioning, safe to rerun.
 
 ### What It Does (in order)
-1. **GitHub auth** — checks `gh auth status`, runs `gh auth login --git-protocol ssh --web` if needed
+1. **GitHub auth** — checks `gh auth status`, runs `gh auth login --git-protocol ssh --web --scopes admin:public_key,admin:ssh_signing_key` if needed (refreshes to add signing-key scope if missing)
 2. **Git identity** — prompts for name/email (pulls defaults from GitHub), updates `git config --global`
-3. **SSH key upload** — uploads `~/.ssh/id_ed25519.pub` to GitHub via `gh ssh-key add` (skips if already there)
-4. **GPG key** — offers to generate ed25519 GPG key; skips entirely if user declines
-5. **Git signing** — configures `commit.gpgsign`, `tag.gpgsign`, `user.signingkey`
-6. **GPG upload** — uploads public key to GitHub via `gh gpg-key add` (skips if already there)
+3. **SSH auth key upload** — uploads `~/.ssh/id_ed25519.pub` via `gh ssh-key add` (skips if already there)
+4. **SSH signing key upload** — uploads the same key a second time via `gh ssh-key add --type signing` (GitHub stores auth and signing keys separately even when the content matches)
+5. **Git SSH signing config** — sets `gpg.format ssh`, `user.signingkey=~/.ssh/id_ed25519.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`
+6. **Allowed signers file** — writes `~/.ssh/allowed_signers` and points `gpg.ssh.allowedSignersFile` at it so `git log --show-signature` can verify locally
 7. **Verify** — prints summary, tests `ssh -T git@github.com`
+
+No GPG involved. Same ed25519 key is used for SSH auth, git push, and commit signing.
 
 ### Usage
 ```bash
@@ -170,12 +170,12 @@ Optimized for Termius mobile:
 | Setup script | `./secure-vps-setup.sh` | Main installer (safe to rerun for upgrades) |
 | Reset script | `./reset-vps-setup.sh` | Uninstall everything |
 | tmux config | `/home/dev/.tmux.conf` | Mobile-optimized tmux |
-| SSH keypair | `/home/dev/.ssh/id_ed25519` | Dev user's ed25519 key (for GitHub) |
+| SSH keypair | `/home/dev/.ssh/id_ed25519` | Dev user's ed25519 key (auth + commit signing) |
 | SSH agent env | `/home/dev/.ssh/agent-env` | ssh-agent socket/PID persistence |
 | SSH config (dev) | `/home/dev/.ssh/config` | Host key checking + GitHub host block |
 | SSH config (root) | `/root/.ssh/config` | No host key checking |
-| GPG agent config | `/home/dev/.gnupg/gpg-agent.conf` | 8-hour cache, tty pinentry |
-| GitHub setup | `/home/dev/.local/bin/setup-github` | Interactive GitHub/SSH/GPG helper |
+| Allowed signers | `/home/dev/.ssh/allowed_signers` | Local verification of SSH-signed commits |
+| GitHub setup | `/home/dev/.local/bin/setup-github` | Interactive GitHub + SSH signing helper |
 | Workspace | `/home/dev/projects/` | Project files go here |
 | ClamAV daily scan | `/etc/cron.daily/clamav-scan` | Runs at midnight |
 | ClamAV scan log | `/var/log/clamav/daily-scan.log` | Daily scan results |
@@ -241,7 +241,7 @@ sudo bash reset-vps-setup.sh
 # - Prompts before proceeding (shows what will be removed)
 # - Optionally deletes the dev user (asked separately)
 # - Removes: Claude Code, Go, Gradle, nvm, pyenv, setup-github
-# - Removes: tmux config, SSH/GPG config, cron jobs
+# - Removes: tmux config, SSH config, cron jobs
 # - Disables: ufw, fail2ban, clamav
 # - Purges apt packages from manifest (if available)
 # - Cleans up apt repos (adoptium, github-cli)

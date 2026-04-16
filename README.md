@@ -28,11 +28,11 @@ claude
 
 # 3. Authenticate Claude Code (follow browser prompts)
 
-# 4. Set up GitHub, SSH & GPG
+# 4. Set up GitHub + SSH signing
 setup-github
 ```
 
-`setup-github` handles everything in one interactive flow: GitHub CLI auth, git identity (pulled from your GitHub account), SSH key upload, GPG key generation, commit signing config, and GPG key upload to GitHub.
+`setup-github` handles everything in one interactive flow: GitHub CLI auth, git identity (pulled from your GitHub account), and SSH-based commit signing. The same ed25519 key is uploaded to GitHub as both an auth key and a signing key — GitHub supports SSH-signed commits natively, so no GPG is needed.
 
 ## What Gets Installed
 
@@ -53,9 +53,8 @@ setup-github
 - **CLI** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, gh
 
 ### Identity & Signing
-- **SSH** — ed25519 keypair, agent persistence across tmux panes, GitHub host config
-- **GPG** — agent with 8-hour cache, tty pinentry, commit signing enabled by default
-- **Git** — identity from GitHub (no placeholders), signed commits and tags
+- **SSH** — ed25519 keypair used for both authentication and commit signing (same key, two GitHub entries via `--type signing`)
+- **Git** — identity from GitHub (no placeholders), `gpg.format ssh` + allowed-signers file, signed commits and tags enabled by default
 
 ### AI
 - **Claude Code** — native installer, runs as non-root `dev` user
@@ -80,7 +79,7 @@ Developer (Termius iOS/Windows)
 Hostinger VPS (Ubuntu 22.04/24.04)
   ├── User: dev (no sudo, locked down)
   ├── tmux (mobile-optimized) → claude
-  ├── setup-github (GitHub/SSH/GPG setup)
+  ├── setup-github (GitHub + SSH signing)
   ├── Security: ClamAV, rkhunter, ufw, fail2ban
   └── Go, Java 21, Node.js/nvm, Python/pyenv, gh
 ```
@@ -91,7 +90,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 |----------|--------|-----|
 | User | `dev` (no sudo) | Claude Code should never run as root |
 | SSH key | ed25519, no passphrase | Access gated by SSH login to VPS |
-| GPG | Default-on, user-generated | Signed commits by default |
+| Commit signing | SSH (same ed25519 key as auth) | One key for auth + signing; GitHub supports SSH-signed commits natively |
 | Git identity | From GitHub via `gh` | No placeholders, real identity only |
 | Node.js | nvm | Version switching without sudo |
 | Python | pyenv | Version switching without sudo |
