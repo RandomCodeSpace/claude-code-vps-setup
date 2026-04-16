@@ -41,8 +41,7 @@ echo "  - Gradle (/opt/gradle-*)"
 echo "  - Miniconda (/opt/miniconda3)"
 echo "  - nvm (~/.nvm)"
 echo "  - pyenv (~/.pyenv)"
-echo "  - cc session manager + setup-github"
-echo "  - Tab completion for cc"
+echo "  - setup-github helper"
 echo "  - tmux config"
 echo "  - SSH keys and config (dev + root)"
 echo "  - GPG agent config"
@@ -148,26 +147,23 @@ if [ -f "$DEV_HOME/.bashrc" ]; then
 fi
 
 # ============================================================
-# 9. cc + setup-github
+# 9. setup-github + legacy cc session manager
 # ============================================================
-print_status "Removing cc and setup-github..."
-rm -f "$DEV_HOME/.local/bin/cc" 2>/dev/null || true
+print_status "Removing setup-github (and legacy cc if present)..."
 rm -f "$DEV_HOME/.local/bin/setup-github" 2>/dev/null || true
-
-# ============================================================
-# 10. Tab completion
-# ============================================================
-print_status "Removing tab completion..."
+# Legacy cleanup: previous versions shipped a 'cc' session manager
+rm -f "$DEV_HOME/.local/bin/cc" 2>/dev/null || true
 rm -f "$DEV_HOME/.local/share/bash-completion/completions/cc" 2>/dev/null || true
+rm -rf "$DEV_HOME/.claude/cc-sessions" 2>/dev/null || true
 
 # ============================================================
-# 11. tmux config
+# 10. tmux config
 # ============================================================
 print_status "Removing tmux config..."
 rm -f "$DEV_HOME/.tmux.conf" 2>/dev/null || true
 
 # ============================================================
-# 12. SSH config
+# 11. SSH config
 # ============================================================
 print_status "Removing SSH keys and config..."
 rm -f "$DEV_HOME/.ssh/id_ed25519" 2>/dev/null || true
@@ -177,40 +173,40 @@ rm -f "$DEV_HOME/.ssh/config" 2>/dev/null || true
 rm -f /root/.ssh/config 2>/dev/null || true
 
 # ============================================================
-# 13. GPG config
+# 12. GPG config
 # ============================================================
 print_status "Removing GPG agent config..."
 rm -f "$DEV_HOME/.gnupg/gpg-agent.conf" 2>/dev/null || true
 
 # ============================================================
-# 14. Cron jobs
+# 13. Cron jobs
 # ============================================================
 print_status "Removing cron jobs..."
 rm -f /etc/cron.daily/clamav-scan 2>/dev/null || true
 rm -f /etc/cron.weekly/rkhunter-scan 2>/dev/null || true
 
 # ============================================================
-# 15. fail2ban
+# 14. fail2ban
 # ============================================================
 print_status "Removing fail2ban jail config..."
 rm -f /etc/fail2ban/jail.local 2>/dev/null || true
 systemctl restart fail2ban 2>/dev/null || true
 
 # ============================================================
-# 16. ufw
+# 15. ufw
 # ============================================================
 print_status "Disabling ufw..."
 ufw disable 2>/dev/null || true
 
 # ============================================================
-# 17. Symlinks
+# 16. Symlinks
 # ============================================================
 print_status "Removing symlinks..."
 rm -f /usr/local/bin/fd 2>/dev/null || true
 rm -f /usr/local/bin/bat 2>/dev/null || true
 
 # ============================================================
-# 18. Apt repos
+# 17. Apt repos
 # ============================================================
 print_status "Removing apt repos and keys..."
 rm -f /etc/apt/sources.list.d/adoptium.list 2>/dev/null || true
@@ -219,14 +215,14 @@ rm -f /etc/apt/keyrings/adoptium.gpg 2>/dev/null || true
 rm -f /usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || true
 
 # ============================================================
-# 19. Services
+# 18. Services
 # ============================================================
 print_status "Stopping and disabling services..."
 systemctl stop clamav-daemon clamav-freshclam fail2ban 2>/dev/null || true
 systemctl disable clamav-daemon clamav-freshclam fail2ban 2>/dev/null || true
 
 # ============================================================
-# 20. Apt packages
+# 19. Apt packages
 # ============================================================
 if [ -f "$MANIFEST" ]; then
     PACKAGES=$(tr '\n' ' ' < "$MANIFEST" 2>/dev/null)
@@ -241,7 +237,7 @@ else
 fi
 
 # ============================================================
-# 21. Dev user
+# 20. Dev user
 # ============================================================
 if [[ "$DELETE_DEV_USER" =~ ^[Yy]$ ]]; then
     print_status "Deleting user '$DEV_USER'..."
@@ -252,13 +248,13 @@ else
 fi
 
 # ============================================================
-# 22. Manifest
+# 21. Manifest
 # ============================================================
 print_status "Removing setup manifest..."
 rm -rf /var/lib/vps-setup 2>/dev/null || true
 
 # ============================================================
-# 23. apt autoremove
+# 22. apt autoremove
 # ============================================================
 print_status "Running apt autoremove..."
 apt autoremove -y 2>/dev/null || true

@@ -22,8 +22,9 @@ sudo bash setup.sh
 # 1. Switch to dev user
 su - dev
 
-# 2. Start a Claude Code session
-cc
+# 2. Start tmux and launch Claude Code
+tmux new -s claude
+claude
 
 # 3. Authenticate Claude Code (follow browser prompts)
 
@@ -43,7 +44,6 @@ setup-github
 
 ### Terminal
 - **tmux** — mobile-optimized (mouse, touch scroll, aggressive resize, 50k scrollback, Termius tab titles)
-- **`cc` session manager** — Claude Code session management with YOLO mode and session persistence (use `cc` to start)
 
 ### Languages & Tools
 - **Go** — latest stable + gopls, delve, golangci-lint, air
@@ -60,33 +60,17 @@ setup-github
 ### AI
 - **Claude Code** — native installer, runs as non-root `dev` user
 
-## Session Manager: `cc`
+## Running Claude Code
 
-```
-cc                  Start/attach default session + launch claude
-cc <name>           Start/attach named session
-cc ls               List all sessions
-cc kill <name>      Kill a session
-cc killall          Kill all sessions
-cc yolo <name>      Launch in YOLO mode (skip all permission prompts)
-cc yolo! <name>     Kill + relaunch in YOLO mode
-cc safe <name>      Kill + relaunch in safe mode
-cc forget <name>    Clear saved conversation (next launch = fresh)
-cc help             Show all commands
+Start a persistent tmux session so your work survives disconnects, then launch `claude`:
+
+```bash
+tmux new -s claude      # or: tmux attach -t claude
+claude                  # safe mode
+claude --dangerously-skip-permissions   # YOLO mode (skip permission prompts)
 ```
 
-### Aliases
-
-| Alias | Expands to | Description |
-|-------|-----------|-------------|
-| `cls` | `cc ls` | List sessions |
-| `cks` | `cc kill` | Kill a session |
-| `cka` | `cc killall` | Kill all sessions |
-| `ccy` | `cc yolo` | Launch YOLO |
-| `ccyf` | `cc yolo!` | Force relaunch YOLO |
-| `ccs` | `cc safe` | Switch to safe mode |
-| `ccp <dir>` | cd + claude | Start claude in project dir |
-| `ccyp <dir>` | cd + yolo claude | YOLO claude in project dir |
+Detach with `Ctrl+b d`, re-attach with `tmux attach -t claude`. See `man tmux` for more.
 
 ## Architecture
 
@@ -95,8 +79,7 @@ Developer (Termius iOS/Windows)
   ↓ SSH (port 22, protected by fail2ban)
 Hostinger VPS (Ubuntu 22.04/24.04)
   ├── User: dev (no sudo, locked down)
-  ├── tmux (mobile-optimized)
-  │   └── cc session manager → claude (start with 'cc')
+  ├── tmux (mobile-optimized) → claude
   ├── setup-github (GitHub/SSH/GPG setup)
   ├── Security: ClamAV, rkhunter, ufw, fail2ban
   └── Go, Java 21, Node.js/nvm, Python/pyenv, gh

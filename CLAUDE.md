@@ -11,7 +11,6 @@ Developer (Termius iOS/Windows)
 Hostinger VPS (Ubuntu 22.04/24.04)
   ├── User: dev (no sudo, locked down)
   ├── tmux (mobile-optimized, Termius tab titles)
-  │   └── cc session manager (launch claude with 'cc')
   ├── Claude Code (native installer, runs as dev)
   ├── Security
   │   ├── ClamAV (antivirus, daily scans)
@@ -38,7 +37,7 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 | Antivirus | ClamAV + rkhunter | Free, open source, no paid tiers, no telemetry |
 | Firewall | ufw + fail2ban | Free, built into Ubuntu |
 | Networking | Direct SSH (port 22) | Tailscale removed — excess for personal dev env |
-| Terminal | tmux | Session persistence for mobile, start with `cc` |
+| Terminal | tmux | Session persistence for mobile |
 | Docker | NOT installed | User preference — explicitly excluded |
 | Tailscale | NOT installed | Removed — unnecessary for personal dev |
 | Node.js | nvm (not system) | Version switching without sudo |
@@ -50,7 +49,6 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 | Git identity | From GitHub (no placeholders) | Set by `setup-github` via `gh api user` |
 | Language servers | gopls, jdtls, pyright, ts-language-server | Full LSP support for Go, Java, Python, TypeScript |
 | Miniconda | System-wide (/opt/miniconda3) | Conda envs without conflicting with pyenv; no auto-activate |
-| Session persistence | UUID mapping in ~/.claude/cc-sessions/ | Resume conversations across mode switches (yolo↔safe) |
 
 ## Script: secure-vps-setup.sh
 
@@ -62,18 +60,17 @@ Hostinger VPS (Ubuntu 22.04/24.04)
 5. **ufw** — firewall, deny all incoming except SSH (22)
 6. **fail2ban** — bans IPs after 3 failed SSH attempts for 1 hour
 7. **tmux** — mobile-optimized config (mouse on, touch scroll, high contrast status bar, aggressive resize)
-8. **`cc` session manager** — full Claude Code session management with YOLO mode support
-9. **`setup-github`** — interactive helper: GitHub auth, git identity, SSH key upload, GPG signing
-10. **ssh-agent** — auto-starts in `.bashrc`, persists across tmux panes via `~/.ssh/agent-env`
-11. **gpg-agent** — 8-hour cache, tty pinentry, `GPG_TTY` exported in `.bashrc`
-12. **Go** — latest stable + gopls, delve, golangci-lint, air
-13. **Java 25** — Temurin JDK + Maven + Gradle 8.12 + jdtls (Eclipse JDT Language Server)
-14. **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier, typescript-language-server
-15. **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry, ipython, pyright
-16. **Miniconda** — system-wide at /opt/miniconda3, conda init for dev user, auto_activate_base=false
-17. **CLI tools** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, pinentry-tty
-18. **GitHub CLI** — gh
-19. **Claude Code** — native installer, installed for dev user
+8. **`setup-github`** — interactive helper: GitHub auth, git identity, SSH key upload, GPG signing
+9. **ssh-agent** — auto-starts in `.bashrc`, persists across tmux panes via `~/.ssh/agent-env`
+10. **gpg-agent** — 8-hour cache, tty pinentry, `GPG_TTY` exported in `.bashrc`
+11. **Go** — latest stable + gopls, delve, golangci-lint, air
+12. **Java 25** — Temurin JDK + Maven + Gradle 8.12 + jdtls (Eclipse JDT Language Server)
+13. **Node.js** — LTS via nvm + TypeScript, tsx, pnpm, yarn, eslint, prettier, typescript-language-server
+14. **Python 3.12** — via pyenv + ruff, mypy, black, pytest, poetry, ipython, pyright
+15. **Miniconda** — system-wide at /opt/miniconda3, conda init for dev user, auto_activate_base=false
+16. **CLI tools** — ripgrep, fd, bat, jq, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, pinentry-tty
+17. **GitHub CLI** — gh
+18. **Claude Code** — native installer, installed for dev user
 
 ### Upgrade-by-Rerun
 Script is safe to rerun and **updates everything on rerun**:
@@ -101,8 +98,9 @@ sudo bash secure-vps-setup.sh
 # 1. Switch to dev user
 su - dev
 
-# 2. Start a Claude Code session
-cc
+# 2. Start tmux and launch Claude Code
+tmux new -s claude
+claude
 
 # 3. Authenticate Claude Code (first time only — follow browser prompts)
 
@@ -132,56 +130,20 @@ Interactive post-install helper that configures GitHub access in one command. Ru
 setup-github
 ```
 
-## Session Manager: `cc`
+## Running Claude Code
 
-The `cc` command manages tmux sessions with Claude Code embedded. All commands are tmux-aware — they use `switch-client` when inside tmux (no nesting).
+Start a persistent tmux session, then launch `claude`:
 
-### Session Commands
-```
-cc                  Start/attach default 'claude' session + launch claude
-cc <n>           Start/attach named session + launch claude
-cc ls               List all sessions (shows [YOLO] tag)
-cc kill <n>      Kill a specific session
-cc killall          Kill ALL sessions
-cc new <n>       Force create new session (kills existing)
-cc switch <n>    Switch to another session (inside tmux)
-cc rename <n>    Rename current session
-cc detach           Detach from current session
-cc forget <n>    Clear saved conversation (next launch = fresh)
-cc help             Show all commands
+```bash
+tmux new -s claude          # or: tmux attach -t claude
+claude                      # safe mode (permission prompts on)
+claude --dangerously-skip-permissions   # YOLO mode
 ```
 
-### YOLO Mode (--dangerously-skip-permissions)
-```
-cc yolo             Launch default session in YOLO mode
-cc yolo <n>      Launch named session in YOLO mode
-cc yolo! <n>     Kill existing + relaunch in YOLO mode
-cc safe <n>      Kill existing + relaunch in SAFE mode
-```
-
-YOLO mode behavior:
-- Skips ALL Claude Code permission prompts
-- Auto-creates a git checkpoint before launching (`git add -A && git commit`)
-- Rollback with: `git reset --hard HEAD~1`
-- Cannot toggle a running session — must kill + relaunch (use `cc yolo!` or `cc safe`)
-- `cc ls` shows `[YOLO]` next to sessions in skip-permissions mode
-
-### Aliases
-```
-cls       → cc ls           List sessions
-cks       → cc kill         Kill a session
-cka       → cc killall      Kill all sessions
-cn        → cc new          New session
-cs        → cc switch       Switch session
-ccy       → cc yolo         Launch YOLO
-ccyf      → cc yolo!        Force relaunch YOLO
-ccs       → cc safe         Switch back to safe
-ccp <dir> → cd + start claude in that directory
-ccyp <dir> → cd + start YOLO claude in that directory
-```
-
-### Tab Completion
-`cc` has bash tab completion. Type `cc kill ` then Tab to autocomplete session names.
+- Detach without killing: `Ctrl+b d` (then `tmux attach -t claude` to return)
+- List/switch sessions: `Ctrl+b s`
+- Multiple projects: pick any session name, e.g. `tmux new -s myapp`
+- Before YOLO, make a git checkpoint manually: `git add -A && git commit --allow-empty -m checkpoint`
 
 ## tmux Config
 
@@ -198,7 +160,7 @@ Optimized for Termius mobile:
 - **50k line scrollback** — Claude Code is verbose
 - **Aggressive resize** — auto-adjusts between phone and desktop
 - **High contrast status bar** — readable on small screens
-- **No forced auto-attach** — SSH gives a plain shell, use `cc` to start tmux+Claude
+- **No forced auto-attach** — SSH gives a plain shell, run `tmux` manually
 - **Tab titles** — Termius tabs show session name + username (e.g. "myapp - dev")
 
 ## File Locations
@@ -207,7 +169,6 @@ Optimized for Termius mobile:
 |------|----------|---------|
 | Setup script | `./secure-vps-setup.sh` | Main installer (safe to rerun for upgrades) |
 | Reset script | `./reset-vps-setup.sh` | Uninstall everything |
-| Session manager | `/home/dev/.local/bin/cc` | Claude session management |
 | tmux config | `/home/dev/.tmux.conf` | Mobile-optimized tmux |
 | SSH keypair | `/home/dev/.ssh/id_ed25519` | Dev user's ed25519 key (for GitHub) |
 | SSH agent env | `/home/dev/.ssh/agent-env` | ssh-agent socket/PID persistence |
@@ -221,13 +182,11 @@ Optimized for Termius mobile:
 | rkhunter weekly scan | `/etc/cron.weekly/rkhunter-scan` | Runs weekly |
 | rkhunter log | `/var/log/rkhunter-weekly.log` | Weekly scan results |
 | fail2ban config | `/etc/fail2ban/jail.local` | SSH protection rules |
-| Tab completion | `/home/dev/.local/share/bash-completion/completions/cc` | cc autocomplete |
 | Package manifest | `/var/lib/vps-setup/installed-packages.manifest` | Packages installed by setup |
 | Pre-existing packages | `/var/lib/vps-setup/pre-existing-packages.list` | Packages before first run |
 | Manifest metadata | `/var/lib/vps-setup/manifest-meta.txt` | Versions, date, user |
 | Miniconda | `/opt/miniconda3` | System-wide Miniconda install |
 | jdtls | `/opt/jdtls` | Eclipse JDT Language Server for Java |
-| Session mappings | `~/.claude/cc-sessions/` | cc session name → Claude session UUID |
 
 ## Language Version Management
 
@@ -281,7 +240,7 @@ sudo bash reset-vps-setup.sh
 # What it does:
 # - Prompts before proceeding (shows what will be removed)
 # - Optionally deletes the dev user (asked separately)
-# - Removes: Claude Code, Go, Gradle, nvm, pyenv, cc, setup-github
+# - Removes: Claude Code, Go, Gradle, nvm, pyenv, setup-github
 # - Removes: tmux config, SSH/GPG config, cron jobs
 # - Disables: ufw, fail2ban, clamav
 # - Purges apt packages from manifest (if available)
@@ -294,38 +253,38 @@ sudo bash reset-vps-setup.sh
 ```bash
 mkdir ~/projects/myapp && cd ~/projects/myapp
 git init
-cc myapp
-# Claude launches, you're coding
+tmux new -s myapp
+claude
 ```
 
 ### Resume work on existing project
 ```bash
-cc myapp
-# Attaches to existing session, everything still running
+tmux attach -t myapp
+# Session still running with Claude where you left it
 ```
 
 ### Autonomous coding session (YOLO)
 ```bash
 cd ~/projects/myapp
-ccy myapp
-# Git checkpoint created automatically
-# Claude runs with no permission prompts
+# Manual git checkpoint first:
+git add -A && git commit --allow-empty -m "checkpoint: pre-yolo"
+tmux new -s myapp
+claude --dangerously-skip-permissions
 # Rollback if needed: git reset --hard HEAD~1
-# Switch back to safe mode (conversation preserved)
-cc safe myapp
 ```
 
 ### Switch between projects
 ```bash
-cs myapp        # switch to myapp session
-cs backend      # switch to backend session
-cls             # see all sessions
+# From inside tmux: Ctrl+b s → pick a session
+# Or from a fresh shell:
+tmux attach -t backend
+tmux ls               # see all sessions
 ```
 
 ### Clean up
 ```bash
-cks myapp       # kill one session
-cka             # kill everything
+tmux kill-session -t myapp    # kill one session
+tmux kill-server              # kill everything
 ```
 
 ## What's NOT Installed (by design)

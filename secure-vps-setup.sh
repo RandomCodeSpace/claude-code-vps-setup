@@ -352,353 +352,8 @@ TMUX
 
 chown $DEV_USER:$DEV_USER /home/$DEV_USER/.tmux.conf
 
-# Create Claude Code session management toolkit
-mkdir -p /home/$DEV_USER/.local/bin
-
-cat > /home/$DEV_USER/.local/bin/cc << 'SCRIPT'
-#!/bin/bash
-# ─────────────────────────────────────────────────────────
-# cc — Claude Code Session Manager
-# ─────────────────────────────────────────────────────────
-#
-# SESSIONS:
-#   cc                  → Start/attach default 'claude' session
-#   cc <n>           → Start/attach named session
-#   cc ls               → List all sessions (shows mode)
-#   cc kill <n>      → Kill a specific session
-#   cc killall          → Kill ALL sessions
-#   cc new <n>       → Force new session
-#   cc detach           → Detach from current session
-#   cc rename <new>     → Rename current session
-#   cc switch <n>    → Switch to another session
-#
-# YOLO MODE (--dangerously-skip-permissions):
-#   cc yolo             → Launch YOLO mode (default session)
-#   cc yolo <n>      → Launch YOLO mode (named session)
-#   cc yolo! <n>     → Kill + relaunch in YOLO mode
-#   cc safe <n>      → Kill + relaunch in SAFE mode
-#
-#   cc forget <n>    → Clear saved conversation mapping
-#   cc help             → Show this help
-# ─────────────────────────────────────────────────────────
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-DIM='\033[2m'
-BOLD='\033[1m'
-NC='\033[0m'
-
-CC_SESSION_DIR="$HOME/.claude/cc-sessions"
-
-# Helper: switch or attach depending on whether we're inside tmux
-_cc_go() {
-    local target="$1"
-    if [ -n "$TMUX" ]; then
-        # Inside tmux: write title to the SSH tty (Termius), not the tmux pane
-        local client_tty
-        client_tty=$(tmux display-message -p '#{client_tty}')
-        printf '\033]0;%s - %s\007' "$target" "$(whoami)" > "$client_tty"
-        tmux switch-client -t "$target"
-    else
-        # Outside tmux: stdout goes directly to Termius
-        printf '\033]0;%s - %s\007' "$target" "$(whoami)"
-        tmux attach -t "$target"
-    fi
-}
-
-# Get stored Claude session UUID for a cc session name
-_cc_get_session_id() {
-    local name="$1"
-    local file="$CC_SESSION_DIR/$name"
-    if [ -f "$file" ]; then
-        cat "$file"
-    fi
-}
-
-# Save Claude session UUID for a cc session name
-_cc_save_session_id() {
-    local name="$1"
-    local uuid="$2"
-    mkdir -p "$CC_SESSION_DIR"
-    echo "$uuid" > "$CC_SESSION_DIR/$name"
-}
-
-# Clear stored Claude session UUID (for fresh start)
-_cc_clear_session_id() {
-    local name="$1"
-    rm -f "$CC_SESSION_DIR/$name"
-}
-
-# Build the claude command with session resume support
-_cc_build_cmd() {
-    local mode="$1"
-    local name="$2"
-    local flags=""
-
-    if [ "$mode" = "yolo" ]; then
-        flags="--dangerously-skip-permissions"
-    fi
-
-    local stored_id
-    stored_id=$(_cc_get_session_id "$name")
-
-    if [ -n "$stored_id" ]; then
-        echo "claude --resume $stored_id $flags"
-    else
-        local new_id
-        new_id=$(uuidgen)
-        _cc_save_session_id "$name" "$new_id"
-        echo "claude --session-id $new_id -n $name $flags"
-    fi
-}
-
-_cc_help() {
-    echo ""
-    echo -e "${CYAN}${BOLD}cc${NC} — Claude Code Session Manager"
-    echo ""
-    echo -e "  ${GREEN}SESSIONS${NC}"
-    echo -e "  cc                  Start/attach default session"
-    echo -e "  cc ${YELLOW}<n>${NC}           Start/attach named session"
-    echo -e "  cc ls    ${DIM}(cls)${NC}     List all sessions"
-    echo -e "  cc kill  ${DIM}(cks)${NC}     Kill a session"
-    echo -e "  cc killall ${DIM}(cka)${NC}  Kill ALL sessions"
-    echo -e "  cc new   ${DIM}(cn)${NC}      Force create new session"
-    echo -e "  cc switch ${DIM}(cs)${NC}    Switch between sessions"
-    echo -e "  cc rename           Rename current session"
-    echo -e "  cc detach           Detach current session"
-    echo -e "  cc forget ${YELLOW}<n>${NC}     Clear saved conversation (fresh start)"
-    echo ""
-    echo -e "  ${MAGENTA}YOLO MODE${NC} ${DIM}(--dangerously-skip-permissions)${NC}"
-    echo -e "  cc yolo             Launch YOLO session (default)"
-    echo -e "  cc yolo ${YELLOW}<n>${NC}      Launch YOLO named session"
-    echo -e "  cc yolo! ${YELLOW}<n>${NC}     Kill + relaunch in YOLO"
-    echo -e "  cc safe ${YELLOW}<n>${NC}       Kill + relaunch in SAFE mode"
-    echo ""
-    echo -e "  ${DIM}YOLO skips ALL permission prompts.${NC}"
-    echo -e "  ${DIM}Auto-commits git checkpoint before launching.${NC}"
-    echo -e "  ${DIM}Use 'cc safe' to switch back to normal mode.${NC}"
-    echo ""
-    echo -e "  ${GREEN}ALIASES${NC}"
-    echo -e "  ccy               = cc yolo"
-    echo -e "  ccp ${YELLOW}<dir>${NC}        = start claude in project dir"
-    echo -e "  ccyp ${YELLOW}<dir>${NC}       = start YOLO claude in project dir"
-    echo ""
-    echo -e "  ${DIM}Ctrl+b d = detach  |  Ctrl+b s = session picker${NC}"
-    echo -e "  ${DIM}Shift+Tab inside claude = cycle permission modes${NC}"
-    echo ""
-}
-
-_cc_list() {
-    if ! tmux list-sessions 2>/dev/null | grep -q .; then
-        echo -e "${YELLOW}No active sessions${NC}"
-        return
-    fi
-    echo ""
-    echo -e "${CYAN}Active Claude Sessions:${NC}"
-    echo "  ─────────────────────────────────────────"
-    tmux list-sessions 2>/dev/null | while IFS= read -r line; do
-        SESSION_NAME=$(echo "$line" | cut -d: -f1)
-        WINDOW_COUNT=$(echo "$line" | grep -oP '\d+ windows' || echo "")
-        ATTACHED=""
-        if echo "$line" | grep -q "(attached)"; then
-            ATTACHED=" ${GREEN}<- attached${NC}"
-        fi
-        MODE=""
-        if tmux list-panes -t "$SESSION_NAME" -F "#{pane_start_command}" 2>/dev/null | grep -q "dangerously"; then
-            MODE=" ${MAGENTA}[YOLO]${NC}"
-        fi
-        echo -e "  ${GREEN}*${NC} ${SESSION_NAME}${MODE}  ${DIM}${WINDOW_COUNT}${NC}${ATTACHED}"
-    done
-    echo ""
-}
-
-_cc_kill() {
-    local target="$1"
-    if [ -z "$target" ]; then
-        echo -e "${RED}Usage: cc kill <session-name>${NC}"
-        _cc_list
-        return 1
-    fi
-    if tmux has-session -t "$target" 2>/dev/null; then
-        tmux kill-session -t "$target"
-        rm -f "$CC_SESSION_DIR/$target"
-        echo -e "${GREEN}Killed session:${NC} $target"
-    else
-        echo -e "${RED}Session not found:${NC} $target"
-        _cc_list
-    fi
-}
-
-_cc_killall() {
-    local count
-    count=$(tmux list-sessions 2>/dev/null | wc -l)
-    if [ "$count" -eq 0 ]; then
-        echo -e "${YELLOW}No sessions to kill${NC}"
-        return
-    fi
-    echo -e "${YELLOW}Killing $count session(s)...${NC}"
-    tmux kill-server 2>/dev/null
-    rm -f "$CC_SESSION_DIR"/*
-    echo -e "${GREEN}All sessions killed${NC}"
-}
-
-_cc_git_checkpoint() {
-    if git rev-parse --is-inside-work-tree &>/dev/null; then
-        echo -e "${YELLOW}Git checkpoint before YOLO...${NC}"
-        git add -A 2>/dev/null
-        git commit -m "checkpoint: pre-yolo $(date +%Y%m%d-%H%M%S)" --allow-empty -q 2>/dev/null
-        echo -e "${GREEN}Saved. Rollback:${NC} git reset --hard HEAD~1"
-    else
-        echo -e "${DIM}Not a git repo - no checkpoint${NC}"
-    fi
-}
-
-_cc_new() {
-    local name="${1:-claude-$(date +%H%M)}"
-    if tmux has-session -t "$name" 2>/dev/null; then
-        echo -e "${YELLOW}Session '$name' exists - killing it first${NC}"
-        tmux kill-session -t "$name"
-    fi
-    # Force fresh conversation
-    _cc_clear_session_id "$name"
-    local cmd
-    cmd=$(_cc_build_cmd "safe" "$name")
-    echo -e "${GREEN}Creating session:${NC} $name"
-    tmux new-session -d -s "$name" -c "$(pwd)" "$cmd; bash"
-    _cc_go "$name"
-}
-
-_cc_attach() {
-    local name="${1:-claude}"
-    if tmux has-session -t "$name" 2>/dev/null; then
-        echo -e "${GREEN}Attaching to:${NC} $name"
-        _cc_go "$name"
-    else
-        local cmd
-        cmd=$(_cc_build_cmd "safe" "$name")
-        echo -e "${CYAN}Creating session:${NC} $name"
-        tmux new-session -d -s "$name" -c "$(pwd)" "$cmd; bash"
-        _cc_go "$name"
-    fi
-}
-
-_cc_yolo() {
-    local name="${1:-claude}"
-    _cc_git_checkpoint
-    echo -e "${MAGENTA}${BOLD}>>> YOLO MODE${NC} - all permissions skipped"
-    echo ""
-    if tmux has-session -t "$name" 2>/dev/null; then
-        echo -e "${GREEN}Attaching to existing:${NC} $name"
-        _cc_go "$name"
-    else
-        local cmd
-        cmd=$(_cc_build_cmd "yolo" "$name")
-        tmux new-session -d -s "$name" -c "$(pwd)" "$cmd; bash"
-        _cc_go "$name"
-    fi
-}
-
-_cc_yolo_force() {
-    local name="${1:-claude}"
-    local session_dir="$(pwd)"
-    if tmux has-session -t "$name" 2>/dev/null; then
-        session_dir=$(tmux display-message -t "$name" -p '#{pane_current_path}' 2>/dev/null || echo "$(pwd)")
-        echo -e "${YELLOW}Killing existing session:${NC} $name"
-        tmux kill-session -t "$name"
-    fi
-    _cc_git_checkpoint
-    echo -e "${MAGENTA}${BOLD}>>> YOLO MODE${NC} - all permissions skipped"
-    echo ""
-    local cmd
-    cmd=$(_cc_build_cmd "yolo" "$name")
-    tmux new-session -d -s "$name" -c "$session_dir" "$cmd; bash"
-    _cc_go "$name"
-}
-
-_cc_safe() {
-    local name="${1:-claude}"
-    local session_dir="$(pwd)"
-    if tmux has-session -t "$name" 2>/dev/null; then
-        session_dir=$(tmux display-message -t "$name" -p '#{pane_current_path}' 2>/dev/null || echo "$(pwd)")
-        echo -e "${YELLOW}Killing existing session:${NC} $name"
-        tmux kill-session -t "$name"
-    fi
-    echo -e "${GREEN}${BOLD}>>> SAFE MODE${NC} - permissions enabled"
-    echo ""
-    local cmd
-    cmd=$(_cc_build_cmd "safe" "$name")
-    tmux new-session -d -s "$name" -c "$session_dir" "$cmd; bash"
-    _cc_go "$name"
-}
-
-_cc_rename() {
-    local newname="$1"
-    if [ -z "$newname" ]; then
-        echo -e "${RED}Usage: cc rename <new-name>${NC}"
-        return 1
-    fi
-    if [ -z "$TMUX" ]; then
-        echo -e "${RED}Not inside a tmux session${NC}"
-        return 1
-    fi
-    local oldname
-    oldname=$(tmux display-message -p '#S')
-    tmux rename-session "$newname"
-    # Move session mapping if it exists
-    if [ -f "$CC_SESSION_DIR/$oldname" ]; then
-        mkdir -p "$CC_SESSION_DIR"
-        mv "$CC_SESSION_DIR/$oldname" "$CC_SESSION_DIR/$newname"
-    fi
-    echo -e "${GREEN}Session renamed to:${NC} $newname"
-}
-
-_cc_switch() {
-    local target="$1"
-    if [ -z "$target" ]; then
-        if [ -n "$TMUX" ]; then
-            tmux choose-session
-        else
-            _cc_list
-        fi
-        return
-    fi
-    if [ -z "$TMUX" ]; then
-        _cc_attach "$target"
-        return
-    fi
-    if tmux has-session -t "$target" 2>/dev/null; then
-        tmux switch-client -t "$target"
-    else
-        echo -e "${RED}Session not found:${NC} $target"
-        _cc_list
-    fi
-}
-
-case "${1:-}" in
-    help|-h|--help)  _cc_help ;;
-    ls|list)         _cc_list ;;
-    kill)            _cc_kill "$2" ;;
-    killall)         _cc_killall ;;
-    new)             _cc_new "$2" ;;
-    forget)          _cc_clear_session_id "${2:-claude}"; echo -e "${GREEN}Cleared session mapping for:${NC} ${2:-claude}" ;;
-    detach)
-        if [ -n "$TMUX" ]; then tmux detach
-        else echo -e "${RED}Not inside a tmux session${NC}"; fi ;;
-    rename)          _cc_rename "$2" ;;
-    switch|sw)       _cc_switch "$2" ;;
-    yolo|y)          _cc_yolo "$2" ;;
-    yolo!|y!)        _cc_yolo_force "$2" ;;
-    safe)            _cc_safe "$2" ;;
-    "")              _cc_attach "claude" ;;
-    *)               _cc_attach "$1" ;;
-esac
-SCRIPT
-chmod +x /home/$DEV_USER/.local/bin/cc
-
 # ── setup-github: interactive GitHub/SSH/GPG setup ───────
+mkdir -p /home/$DEV_USER/.local/bin
 cat > /home/$DEV_USER/.local/bin/setup-github << 'SETUPGH'
 #!/bin/bash
 # ─────────────────────────────────────────────────────────
@@ -915,32 +570,6 @@ echo ""
 SETUPGH
 chmod +x /home/$DEV_USER/.local/bin/setup-github
 
-# ── Tab completion for cc ────────────────────────────────
-mkdir -p /home/$DEV_USER/.local/share/bash-completion/completions
-cat > /home/$DEV_USER/.local/share/bash-completion/completions/cc << 'COMPLETION'
-_cc_completions() {
-    local cur prev commands sessions
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="ls list kill killall new detach rename switch sw yolo yolo! safe forget help"
-
-    case "$prev" in
-        kill|switch|sw|yolo|yolo!|safe|forget)
-            sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null)
-            COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
-            return
-            ;;
-        cc)
-            sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null)
-            COMPREPLY=($(compgen -W "$commands $sessions" -- "$cur"))
-            return
-            ;;
-    esac
-    COMPREPLY=($(compgen -W "$commands" -- "$cur"))
-}
-complete -F _cc_completions cc
-COMPLETION
-
 # --- Legacy bashrc migration (one-time: strip old single-marker format) ---
 _migrate_legacy_bashrc() {
     local file="/home/$DEV_USER/.bashrc"
@@ -953,61 +582,12 @@ _migrate_legacy_bashrc() {
 }
 _migrate_legacy_bashrc
 
-# Add .local/bin to dev user's PATH + aliases (delete-then-append for upgrades)
+# Add .local/bin to dev user's PATH (delete-then-append for upgrades)
 sed -i '/# --- Claude Code VPS additions START ---/,/# --- Claude Code VPS additions END ---/d' /home/$DEV_USER/.bashrc
 cat >> /home/$DEV_USER/.bashrc << 'BASHRC'
 
 # --- Claude Code VPS additions START ---
 export PATH="$HOME/.local/bin:$PATH"
-
-# Claude Code aliases — sessions
-alias cls='cc ls'                    # list sessions
-alias cks='cc kill'                  # kill a session
-alias cka='cc killall'               # kill all sessions
-alias cn='cc new'                    # new session
-alias cs='cc switch'                 # switch session
-
-# Claude Code aliases — YOLO mode
-alias ccy='cc yolo'                  # launch yolo
-alias ccyf='cc yolo!'               # force relaunch yolo
-alias ccs='cc safe'                  # switch back to safe
-
-# Quick project starter — cd into dir + start claude
-ccp() {
-    local dir="${1:-.}"
-    if [ "$dir" != "." ]; then
-        mkdir -p "$dir" && cd "$dir" || return 1
-    fi
-    local name=$(basename "$(pwd)")
-    if ! tmux has-session -t "$name" 2>/dev/null; then
-        tmux new-session -d -s "$name" -c "$(pwd)" "claude; bash"
-    fi
-    if [ -n "$TMUX" ]; then tmux switch-client -t "$name"; else tmux attach -t "$name"; fi
-}
-
-# YOLO project starter — cd into dir + start claude in YOLO mode
-ccyp() {
-    local dir="${1:-.}"
-    if [ "$dir" != "." ]; then
-        mkdir -p "$dir" && cd "$dir" || return 1
-    fi
-    local name=$(basename "$(pwd)")
-    # Git checkpoint
-    if git rev-parse --is-inside-work-tree &>/dev/null; then
-        git add -A 2>/dev/null
-        git commit -m "checkpoint: pre-yolo $(date +%Y%m%d-%H%M%S)" --allow-empty -q 2>/dev/null
-    fi
-    if tmux has-session -t "$name" 2>/dev/null; then
-        tmux kill-session -t "$name"
-    fi
-    tmux new-session -d -s "$name" -c "$(pwd)" "claude --dangerously-skip-permissions; bash"
-    if [ -n "$TMUX" ]; then tmux switch-client -t "$name"; else tmux attach -t "$name"; fi
-}
-
-# Load tab completion for cc
-if [ -f "$HOME/.local/share/bash-completion/completions/cc" ]; then
-    . "$HOME/.local/share/bash-completion/completions/cc"
-fi
 # --- Claude Code VPS additions END ---
 BASHRC
 
@@ -1062,7 +642,7 @@ GPGENV
 chown -R $DEV_USER:$DEV_USER /home/$DEV_USER/.local
 chown $DEV_USER:$DEV_USER /home/$DEV_USER/.bashrc
 
-print_status "tmux installed — mobile-optimized, use 'cc' to start sessions"
+print_status "tmux installed — mobile-optimized"
 
 # ============================================================
 # 7. Dev Toolchains — Go, Java, TypeScript, Python
@@ -1347,31 +927,8 @@ echo "  Miniconda  : /opt/miniconda3 (auto_activate_base=false)"
 echo "  Extras     : ripgrep, fd, bat, jq, htop, shellcheck"
 echo "  DEV TOOLS"
 echo "  ─────────────────────────────────────────"
-echo "  tmux         : Mobile-optimized, use 'cc' to start"
-echo "  Claude Code  : Installed for dev user"
-echo ""
-echo "  CLAUDE SESSION MANAGER (cc):"
-echo "  ─────────────────────────────────────────"
-echo "  cc                Start/attach 'claude' session"
-echo "  cc <name>         Start/attach named session"
-echo "  cc ls    (cls)    List all sessions"
-echo "  cc kill  (cks)    Kill a session"
-echo "  cc killall (cka)  Kill ALL sessions"
-echo "  cc new   (cn)     Force new session"
-echo "  cc switch (cs)    Switch between sessions"
-echo "  cc rename <name>  Rename current session"
-echo "  cc forget <name>  Clear saved conversation"
-echo "  cc help           Show all commands"
-echo "  ccp <dir>         Start claude in project dir"
-echo ""
-echo "  YOLO MODE (skip permissions):"
-echo "  ─────────────────────────────────────────"
-echo "  cc yolo  (ccy)    Launch in YOLO mode"
-echo "  cc yolo! (ccyf)   Kill + relaunch in YOLO"
-echo "  cc safe  (ccs)    Kill + relaunch in SAFE mode"
-echo "  ccyp <dir>        YOLO claude in project dir"
-echo "  Auto git checkpoint before every YOLO launch"
-echo "  Conversations persist across mode switches"
+echo "  tmux         : Mobile-optimized"
+echo "  Claude Code  : Installed for dev user (run 'claude' to start)"
 echo ""
 echo "  tmux SHORTCUTS:"
 echo "  ─────────────────────────────────────────"
@@ -1391,8 +948,9 @@ echo "  ━━━━━━━━━━━━━━━━━━━━━━━━
 echo "  1. Switch to dev user:"
 echo "     su - dev"
 echo ""
-echo "  2. Start a Claude Code session:"
-echo "     cc"
+echo "  2. Start tmux and launch Claude Code:"
+echo "     tmux new -s claude"
+echo "     claude"
 echo ""
 echo "  3. First time only - authenticate Claude Code:"
 echo "     (follow browser prompts)"
@@ -1403,18 +961,6 @@ echo "     (GitHub auth → git identity → SSH key → GPG signing)"
 echo ""
 echo "  Your SSH public key:"
 echo "     cat ~/.ssh/id_ed25519.pub"
-echo ""
-echo "  Quick workflows:"
-echo "     cc                      — default claude session"
-echo "     cc myapi                — named session for a project"
-echo "     ccp ~/projects/myapp    — cd into dir + start claude"
-echo "     cls                     — see all running sessions"
-echo "     cs myapi                — switch to another session"
-echo "     cks myapi               — done with that session"
-echo "     ccy myapi               — launch myapi in YOLO mode"
-echo "     ccyf myapi              — switch running session to YOLO"
-echo "     ccs myapi               — switch back to safe mode"
-echo "     ccyp ~/projects/myapp   — YOLO claude in project dir"
 echo ""
 echo "  Useful commands:"
 echo "  ─────────────────────────────────────────"
