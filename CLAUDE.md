@@ -15,9 +15,10 @@ Hostinger VPS (Ubuntu 22.04/24.04, amd64)
   ├── Security
   │   ├── ClamAV (antivirus, daily scans)
   │   ├── rkhunter (rootkit scanner, weekly scans)
-  │   ├── ufw (firewall: SSH + mosh only)
+  │   ├── ufw (firewall: SSH + mosh + HTTP/HTTPS for Caddy)
   │   ├── fail2ban (bans after 3 failed SSH attempts)
   │   └── mosh (mobile shell, reuses SSH key auth)
+  ├── Caddy (auto-HTTPS reverse proxy / web server)
   ├── setup-github (interactive GitHub + SSH signing helper)
   ├── Shell (root + dev both): PS1 user@<fqdn>, common aliases,
   │                           fzf/zoxide/direnv/git-delta integrations
@@ -91,8 +92,9 @@ Hostinger VPS (Ubuntu 22.04/24.04, amd64)
 22. **GitHub CLI** — gh
 23. **.NET 10 LTS** — via `dotnet-install.sh --channel 10.0` → `/usr/share/dotnet`, symlinked system-wide
 24. **PowerShell 7** — via Microsoft's apt repo (added alongside the .NET install step)
-25. **Shell customization** — PS1 (`user@<fqdn>:cwd`), common aliases, fzf/zoxide/direnv/git-delta integrations — written to BOTH `/root/.bashrc` and `/home/dev/.bashrc`; root additionally gets Go PATH, `JAVA_HOME`, `DOTNET_ROOT`, and the conda shell hook
-26. **Claude Code** — native installer, installed for dev user
+25. **Caddy** — auto-HTTPS reverse proxy (Cloudsmith's apt repo), runs on 80/443 by default; edit `/etc/caddy/Caddyfile` and `systemctl reload caddy` to expose a site
+26. **Shell customization** — PS1 (`user@<fqdn>:cwd`), common aliases, fzf/zoxide/direnv/git-delta integrations — written to BOTH `/root/.bashrc` and `/home/dev/.bashrc`; root additionally gets Go PATH, `JAVA_HOME`, `DOTNET_ROOT`, and the conda shell hook
+27. **Claude Code** — native installer, installed for dev user
 
 ### Upgrade-by-Rerun
 Script is safe to rerun and **updates everything on rerun**:
@@ -318,4 +320,4 @@ tmux kill-server              # kill everything
 - **Docker** — excluded by user preference
 - **Tailscale** — removed, unnecessary for personal dev
 - **GUI tools** — this is a headless terminal environment
-- **Web server** — no nginx/apache (add if needed: `sudo ufw allow 80/tcp && sudo ufw allow 443/tcp`)
+- **nginx / Apache** — replaced by Caddy (auto-HTTPS, installed by the main script)

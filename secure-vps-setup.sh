@@ -275,9 +275,10 @@ ufw allow 22/tcp comment 'SSH'
 # Allow mosh (UDP 60000-61000, one port per concurrent session)
 ufw allow 60000:61000/udp comment 'mosh'
 
-# Allow HTTP/HTTPS (uncomment if you run a web server)
-# ufw allow 80/tcp comment 'HTTP'
-# ufw allow 443/tcp comment 'HTTPS'
+# Allow HTTP/HTTPS — needed by Caddy (installed later in this script)
+# to serve sites and to solve ACME HTTP-01 challenges for auto-TLS.
+ufw allow 80/tcp comment 'HTTP (Caddy)'
+ufw allow 443/tcp comment 'HTTPS (Caddy)'
 
 # Enable firewall (--force skips the interactive "may disrupt existing
 # ssh connections" confirmation; safe because SSH + mosh rules are
@@ -285,8 +286,8 @@ ufw allow 60000:61000/udp comment 'mosh'
 ufw --force enable
 ufw status verbose
 
-print_status "UFW enabled — SSH (22/tcp) + mosh (60000-61000/udp) allowed, all other incoming blocked"
-print_warning "If you need other ports (80, 443, etc.), run: sudo ufw allow <port>/tcp"
+print_status "UFW enabled — SSH (22), mosh (60000-61000/udp), HTTP (80), HTTPS (443) allowed"
+print_warning "If you need other ports, run: sudo ufw allow <port>/tcp"
 
 # ============================================================
 # 4. fail2ban - Brute Force Protection
@@ -984,6 +985,24 @@ ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
 
 print_status ".NET $(/usr/local/bin/dotnet --version 2>/dev/null || echo "${DOTNET_LTS_VERSION}.x") + PowerShell $(pwsh --version 2>/dev/null | head -1 || echo "${PWSH_NOTE}") installed"
 
+# ── Caddy (auto-HTTPS reverse proxy / web server) ───────
+# Installed from Cloudsmith's official Caddy stable apt repo. Caddy
+# handles Let's Encrypt / ZeroSSL certs automatically on first request
+# to a configured domain (no certbot needed). Config: /etc/caddy/Caddyfile.
+# Default install serves a welcome page on :80 until the Caddyfile is
+# edited. UFW already opened 80/tcp + 443/tcp above.
+print_status "Installing Caddy..."
+apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+    | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+    > /etc/apt/sources.list.d/caddy-stable.list
+apt update -y
+apt install -y caddy
+systemctl enable caddy
+systemctl restart caddy
+print_status "Caddy $(caddy version 2>/dev/null | awk '{print $1}' || echo installed) — edit /etc/caddy/Caddyfile, then: systemctl reload caddy"
+
 # ============================================================
 # 9. Shell customization — PS1 + aliases + productivity init
 # ============================================================
@@ -1187,7 +1206,7 @@ echo "  SECURITY"
 echo "  ─────────────────────────────────────────"
 echo "  ClamAV     : Active — daily scans at midnight"
 echo "  rkhunter   : Active — weekly scans"
-echo "  UFW        : Active — SSH (22/tcp) + mosh (60000-61000/udp) open"
+echo "  UFW        : Active — SSH (22/tcp), mosh (60000-61000/udp), HTTP (80/tcp), HTTPS (443/tcp)"
 echo "  fail2ban   : Active — SSH brute-force protection"
 echo "  mosh       : Installed — connect with: mosh ${DEV_USER}@<vps-ip>"
 echo ""
@@ -1205,8 +1224,9 @@ echo "  Java       : ${TEMURIN_PKG}  (maven, gradle ${GRADLE_VERSION}, jdtls ${J
 echo "  Node.js    : ${NODE_VERSION}  (ts ${TS_VERSION}, tsx, pnpm ${PNPM_VERSION}, yarn, ts-language-server, ncu, ${BUN_VERSION})"
 echo "  Python     : ${PYTHON_VERSION}  (ruff ${RUFF_VERSION}, mypy, pytest, poetry, pyright, uv ${UV_VERSION}, pipx, pre-commit)"
 echo "  Miniconda  : ${MINICONDA_VERSION}  (/opt/miniconda3, auto_activate_base=false)"
-echo "  .NET LTS   : ${DOTNET_LTS_VERSION}  (dotnet-sdk-${DOTNET_LTS_VERSION} via Microsoft apt)"
+echo "  .NET LTS   : ${DOTNET_LTS_VERSION}  (via dotnet-install.sh, /usr/share/dotnet)"
 echo "  PowerShell : pwsh (tracks Microsoft apt, latest 7.x)"
+echo "  Caddy      : $(caddy version 2>/dev/null | awk '{print $1}' || echo installed) — auto-HTTPS, edit /etc/caddy/Caddyfile"
 echo "  Extras     : ripgrep, fd, bat, jq, htop, shellcheck, rtk ${RTK_VERSION}"
 echo "  DEV TOOLS"
 echo "  ─────────────────────────────────────────"

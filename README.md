@@ -55,7 +55,7 @@ ctm install
 ### Security & Connectivity
 - **ClamAV** — antivirus daemon + daily scans
 - **rkhunter** — rootkit scanner + weekly scans
-- **ufw** — firewall (SSH 22/tcp + mosh 60000-61000/udp)
+- **ufw** — firewall (SSH 22/tcp, mosh 60000-61000/udp, HTTP 80/tcp, HTTPS 443/tcp for Caddy)
 - **fail2ban** — bans IPs after 3 failed SSH attempts
 - **mosh** — mobile shell for flaky/roaming connections (uses your SSH key, no extra auth)
 
@@ -73,6 +73,7 @@ All versions are pinned in a single `VERSIONS` block at the top of `secure-vps-s
 - **Miniconda** — system-wide at `/opt/miniconda3` (no auto-activate)
 - **.NET 10 LTS** — installed via Microsoft's `dotnet-install.sh` to `/usr/share/dotnet` and symlinked at `/usr/local/bin/dotnet` (works on both 22.04 and 24.04 — Microsoft's jammy apt feed doesn't ship 10.0 yet)
 - **PowerShell** — `pwsh` 7.x via Microsoft's apt repo
+- **Caddy** — auto-HTTPS reverse proxy / web server (Cloudsmith's stable apt repo). Edit `/etc/caddy/Caddyfile` + `systemctl reload caddy` to serve a site — Caddy handles Let's Encrypt certs automatically, no certbot needed
 - **CLI** — ripgrep, fd, bat, jq, tree, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, gh
 - **Claude Code productivity** — [rtk](https://github.com/rtk-ai/rtk) (LLM token compressor), fzf (fuzzy finder), yq, git-delta (colored diffs), zoxide (`z` dir jumping), direnv, tldr, entr
 

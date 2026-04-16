@@ -211,15 +211,21 @@ rm -f /usr/local/bin/bat 2>/dev/null || true
 print_status "Removing apt repos and keys..."
 rm -f /etc/apt/sources.list.d/adoptium.list 2>/dev/null || true
 rm -f /etc/apt/sources.list.d/github-cli.list 2>/dev/null || true
+rm -f /etc/apt/sources.list.d/caddy-stable.list 2>/dev/null || true
+rm -f /etc/apt/sources.list.d/microsoft-prod.list 2>/dev/null || true
 rm -f /etc/apt/keyrings/adoptium.gpg 2>/dev/null || true
 rm -f /usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || true
+rm -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null || true
+# .NET installed via dotnet-install.sh (not apt), remove its dir + symlink
+rm -rf /usr/share/dotnet 2>/dev/null || true
+rm -f /usr/local/bin/dotnet 2>/dev/null || true
 
 # ============================================================
 # 18. Services
 # ============================================================
 print_status "Stopping and disabling services..."
-systemctl stop clamav-daemon clamav-freshclam fail2ban 2>/dev/null || true
-systemctl disable clamav-daemon clamav-freshclam fail2ban 2>/dev/null || true
+systemctl stop clamav-daemon clamav-freshclam fail2ban caddy 2>/dev/null || true
+systemctl disable clamav-daemon clamav-freshclam fail2ban caddy 2>/dev/null || true
 
 # ============================================================
 # 19. Apt packages
