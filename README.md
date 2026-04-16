@@ -68,7 +68,7 @@ All versions are pinned in a single `VERSIONS` block at the top of `secure-vps-s
 
 - **Go** — gopls, delve, golangci-lint, air, goimports, govulncheck, [ctm](https://github.com/RandomCodeSpace/ctm) (Claude tmux session manager)
 - **Java** — Temurin 25 JDK + Maven + Gradle + jdtls (Eclipse JDT Language Server)
-- **Node.js** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, typescript-language-server, npm-check-updates
+- **Node.js** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, typescript-language-server, npm-check-updates, [bun](https://bun.sh) (alt JS runtime + package manager)
 - **Python** — via pyenv + ruff, mypy, black, isort, pytest, poetry, pipenv, ipython, pyright, uv, pipx, pre-commit, httpie
 - **Miniconda** — system-wide at `/opt/miniconda3` (no auto-activate)
 - **CLI** — ripgrep, fd, bat, jq, tree, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, gh, [rtk](https://github.com/rtk-ai/rtk) (LLM token compressor for shell output)

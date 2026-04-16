@@ -58,6 +58,7 @@ PNPM_VERSION="10.33.0"
 YARN_VERSION="1.22.22"   # Yarn classic; modern yarn is enabled per-project via corepack
 TS_LSP_VERSION="5.1.3"
 NCU_VERSION="21.0.1"
+BUN_VERSION="bun-v1.3.12"   # Passed to bun.sh/install as the pin
 
 # Python + pip packages
 PYTHON_VERSION="3.14.4"   # 3.15 is still in alpha
@@ -801,6 +802,15 @@ su - "$DEV_USER" -c "export NVM_DIR=\$HOME/.nvm && \
 
 print_status "Node.js ${NODE_VERSION} + TS ${TS_VERSION} + pnpm ${PNPM_VERSION} + yarn ${YARN_VERSION} + ts-language-server ${TS_LSP_VERSION} + ncu ${NCU_VERSION} installed"
 
+# ── Bun (alt JS runtime + package manager, installs to ~/.bun) ──
+# bun's installer is idempotent — grep-guarded writes to .bashrc — so
+# rerunning with the same pinned version is a no-op, and bumping
+# BUN_VERSION re-downloads the binary.
+print_status "Installing ${BUN_VERSION}..."
+su - "$DEV_USER" -c "curl -fsSL https://bun.sh/install | bash -s ${BUN_VERSION}" 2>/dev/null || \
+    print_warning "bun install reported a warning — verify with 'bun --version' after reconnecting"
+print_status "${BUN_VERSION} installed (binary at ~/.bun/bin/bun)"
+
 # ── Python (system + pyenv for version management) ─────
 print_status "Installing Python toolchain..."
 
@@ -943,6 +953,7 @@ TS_VERSION=${TS_VERSION}
 PNPM_VERSION=${PNPM_VERSION}
 YARN_VERSION=${YARN_VERSION}
 NCU_VERSION=${NCU_VERSION}
+BUN_VERSION=${BUN_VERSION}
 PYTHON_VERSION=${PYTHON_VERSION}
 RUFF_VERSION=${RUFF_VERSION}
 MYPY_VERSION=${MYPY_VERSION}
@@ -994,7 +1005,7 @@ echo "  DEV TOOLCHAINS (all pinned — bump in VERSIONS block to upgrade)"
 echo "  ─────────────────────────────────────────"
 echo "  Go         : ${GO_VERSION}  (gopls, dlv, golangci-lint, air, goimports, govulncheck, ctm ${CTM_VERSION})"
 echo "  Java       : ${TEMURIN_PKG}  (maven, gradle ${GRADLE_VERSION}, jdtls ${JDTLS_VERSION})"
-echo "  Node.js    : ${NODE_VERSION}  (ts ${TS_VERSION}, tsx, pnpm ${PNPM_VERSION}, yarn, ts-language-server, ncu)"
+echo "  Node.js    : ${NODE_VERSION}  (ts ${TS_VERSION}, tsx, pnpm ${PNPM_VERSION}, yarn, ts-language-server, ncu, ${BUN_VERSION})"
 echo "  Python     : ${PYTHON_VERSION}  (ruff ${RUFF_VERSION}, mypy, pytest, poetry, pyright, uv ${UV_VERSION}, pipx, pre-commit)"
 echo "  Miniconda  : ${MINICONDA_VERSION}  (/opt/miniconda3, auto_activate_base=false)"
 echo "  Extras     : ripgrep, fd, bat, jq, htop, shellcheck, rtk ${RTK_VERSION}"
