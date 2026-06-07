@@ -93,6 +93,7 @@ fi
 # ============================================================
 # 4. Bashrc blocks
 # ============================================================
+# Remove setup blocks from both dev and root shell config.
 if [ -f "$DEV_HOME/.bashrc" ]; then
     print_status "Removing setup blocks from .bashrc..."
     # Old format: everything from single marker to EOF
@@ -101,6 +102,15 @@ if [ -f "$DEV_HOME/.bashrc" ]; then
     sed -i '/# --- .* START ---/,/# --- .* END ---/d' "$DEV_HOME/.bashrc" 2>/dev/null || true
 else
     print_warning "No .bashrc found — skipping"
+fi
+
+if [ -f /root/.bashrc ]; then
+    print_status "Removing setup blocks from root .bashrc..."
+    sed -i '/^# --- Claude Code VPS additions ---$/,$d' /root/.bashrc 2>/dev/null || true
+    sed -i '/# --- .* START ---/,/# --- .* END ---/d' /root/.bashrc 2>/dev/null || true
+    sed -i '/# >>> conda initialize >>>/,/# <<< conda initialize <<</d' /root/.bashrc 2>/dev/null || true
+else
+    print_warning "No root .bashrc found — skipping"
 fi
 
 # ============================================================
@@ -116,7 +126,19 @@ fi
 # 6. Gradle
 # ============================================================
 print_status "Removing Gradle..."
-rm -rf /opt/gradle-* 2>/dev/null || true
+if [ -f /var/lib/vps-setup/manifest-meta.txt ]; then
+    # shellcheck disable=SC1091
+    . /var/lib/vps-setup/manifest-meta.txt
+fi
+
+if [ -n "${GRADLE_VERSION:-}" ]; then
+    rm -rf "/opt/gradle-${GRADLE_VERSION}" 2>/dev/null || true
+fi
+
+# Backward-compatible cleanup for installations from older scripts
+if [ ! -d "/opt/gradle-${GRADLE_VERSION:-}" ]; then
+    rm -rf /opt/gradle-* 2>/dev/null || true
+fi
 rm -f /usr/local/bin/gradle 2>/dev/null || true
 
 # ============================================================
@@ -169,6 +191,7 @@ print_status "Removing SSH keys and config..."
 rm -f "$DEV_HOME/.ssh/id_ed25519" 2>/dev/null || true
 rm -f "$DEV_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
 rm -f "$DEV_HOME/.ssh/agent-env" 2>/dev/null || true
+rm -f "$DEV_HOME/.ssh/allowed_signers" 2>/dev/null || true
 rm -f "$DEV_HOME/.ssh/config" 2>/dev/null || true
 rm -f /root/.ssh/config 2>/dev/null || true
 
@@ -184,6 +207,7 @@ rm -f "$DEV_HOME/.gnupg/gpg-agent.conf" 2>/dev/null || true
 print_status "Removing cron jobs..."
 rm -f /etc/cron.daily/clamav-scan 2>/dev/null || true
 rm -f /etc/cron.weekly/rkhunter-scan 2>/dev/null || true
+rm -f /etc/logrotate.d/vps-security 2>/dev/null || true
 
 # ============================================================
 # 14. fail2ban
@@ -231,10 +255,10 @@ systemctl disable clamav-daemon clamav-freshclam fail2ban caddy 2>/dev/null || t
 # 19. Apt packages
 # ============================================================
 if [ -f "$MANIFEST" ]; then
-    PACKAGES=$(tr '\n' ' ' < "$MANIFEST" 2>/dev/null)
-    if [ -n "$PACKAGES" ]; then
+    mapfile -t PACKAGES < "$MANIFEST" 2>/dev/null || true
+    if [ "${#PACKAGES[@]}" -ne 0 ]; then
         print_status "Purging apt packages from manifest..."
-        apt purge -y $PACKAGES 2>/dev/null || true
+        apt purge -y -- "${PACKAGES[@]}" 2>/dev/null || true
     else
         print_warning "Manifest is empty — skipping apt purge"
     fi

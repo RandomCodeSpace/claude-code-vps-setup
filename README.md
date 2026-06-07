@@ -1,6 +1,6 @@
 # Claude Code VPS Setup
 
-One-command setup for a secure Hostinger VPS (Ubuntu 22.04/24.04) fully configured for [Claude Code](https://claude.ai) development.
+One-command setup for a secure Hostinger VPS (Ubuntu 22.04/24.04/26.04) fully configured for [Claude Code](https://claude.ai) development.
 
 ## Quick Start
 
@@ -28,6 +28,18 @@ sudo bash secure-vps-setup.sh
 
 All three are safe to rerun — every install step replaces the pinned version on rerun, so upgrading is just a `git pull && sudo bash secure-vps-setup.sh`.
 
+To keep base installs lightweight, optional AI coding assistants are disabled by default. Enable with:
+
+```bash
+INSTALL_AI_AGENT_TOOLS=true sudo bash secure-vps-setup.sh
+```
+
+Or with the curl|bash path:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RandomCodeSpace/claude-code-vps-setup/main/secure-vps-setup.sh | sudo env INSTALL_AI_AGENT_TOOLS=true bash
+```
+
 ## Post-Install
 
 ```bash
@@ -44,8 +56,9 @@ claude
 # 4. Set up GitHub + SSH signing
 setup-github
 
-# 5. Finish ctm shell integration (one-time)
-ctm install
+# 5. Start Claude Code and run an initial test command
+tmux new -s claude
+claude
 ```
 
 `setup-github` handles everything in one interactive flow: GitHub CLI auth, git identity (pulled from your GitHub account), and SSH-based commit signing. The same ed25519 key is uploaded to GitHub as both an auth key and a signing key — GitHub supports SSH-signed commits natively, so no GPG is needed.
@@ -66,15 +79,18 @@ ctm install
 
 All versions are pinned in a single `VERSIONS` block at the top of `secure-vps-setup.sh`. Bump a variable there and rerun the script to upgrade.
 
-- **Go** — gopls, delve, golangci-lint, air, goimports, govulncheck, [ctm](https://github.com/RandomCodeSpace/ctm) (Claude tmux session manager)
+- **Go** — gopls, delve, golangci-lint, air, goimports, govulncheck
 - **Java** — Temurin 25 JDK + Maven + Gradle + jdtls (Eclipse JDT Language Server)
-- **Node.js** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, typescript-language-server, npm-check-updates, [bun](https://bun.sh) (alt JS runtime + package manager)
+- **Node.js** — via nvm + TypeScript, ts-node, tsx, eslint, prettier, nodemon, pnpm, yarn, typescript-language-server, npm-check-updates, [bun](https://bun.sh) (alt JS runtime + package manager, pinned `bun-v1.3.14`)
+- **Mandatory coding CLI** — `@openai/codex`
 - **Python** — via pyenv + ruff, mypy, black, isort, pytest, poetry, pipenv, ipython, pyright, uv, pipx, pre-commit, httpie
 - **Miniconda** — system-wide at `/opt/miniconda3` (no auto-activate)
-- **.NET 10 LTS** — installed via Microsoft's `dotnet-install.sh` to `/usr/share/dotnet` and symlinked at `/usr/local/bin/dotnet` (works on both 22.04 and 24.04 — Microsoft's jammy apt feed doesn't ship 10.0 yet)
+- **LLM CLI** — `llm` + plugins `llm-anthropic`, `llm-gemini`, `llm-ollama`, plus `@openai/codex`
+- **Optional AI coding assistants** — `aider` + `open-interpreter` (set `INSTALL_AI_AGENT_TOOLS=true`; `open-interpreter` is AGPL-3.0)
+- **.NET 10 LTS** — installed via Microsoft's `dotnet-install.sh` to `/usr/share/dotnet` and symlinked at `/usr/local/bin/dotnet` (works on 22.04, 24.04, and 26.04)
 - **PowerShell** — `pwsh` 7.x via Microsoft's apt repo
 - **Caddy** — auto-HTTPS reverse proxy / web server (Cloudsmith's stable apt repo). Edit `/etc/caddy/Caddyfile` + `systemctl reload caddy` to serve a site — Caddy handles Let's Encrypt certs automatically, no certbot needed
-- **CLI** — ripgrep, fd, bat, jq, tree, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, gh
+- **CLI** — ripgrep, fd, bat, jq, tree, htop, shellcheck, make, cmake, sqlite3, redis-tools, postgresql-client, gh, ast-grep, llm
 - **Claude Code productivity** — [rtk](https://github.com/rtk-ai/rtk) (LLM token compressor), fzf (fuzzy finder), yq, git-delta (colored diffs), zoxide (`z` dir jumping), direnv, tldr, entr
 
 ### Shell customization
@@ -92,6 +108,8 @@ Root additionally gets Go PATH + `JAVA_HOME` + conda shell hook so troubleshooti
 
 ### AI
 - **Claude Code** — native installer, runs as non-root `dev` user
+- **Mandatory AI coding CLI** — `@openai/codex`
+- **Optional AI coding agents (opt-in)** — `aider` + `open-interpreter`
 
 ## Running Claude Code
 
@@ -110,22 +128,22 @@ Detach with `Ctrl+b d`, re-attach with `tmux attach -t claude`. See `man tmux` f
 ```
 Developer (Termius iOS/Windows)
   ↓ SSH (port 22, protected by fail2ban)
-Hostinger VPS (Ubuntu 22.04/24.04, amd64)
+Hostinger VPS (Ubuntu 22.04/24.04/26.04, amd64)
   ├── User: dev (no sudo, SSH-key only, password locked)
   ├── Connectivity: SSH (22/tcp) + mosh (60000-61000/udp)
   ├── tmux (mobile-optimized) → claude
   ├── setup-github (GitHub + SSH commit signing)
   ├── Security: ClamAV, rkhunter, ufw, fail2ban
   └── Toolchains:
-       Go 1.26, Java 25, Node 24, Python 3.14, bun, .NET 10 LTS,
-       PowerShell 7, Miniconda, rtk, ctm, gh
+Go 1.26, Java 25, Node 24, Python 3.11, Bun 1.3.14, .NET 10 LTS,
+       PowerShell 7, Miniconda, rtk, gh, llm, @openai/codex
 ```
 
 ## Design Decisions
 
 | Decision | Choice | Why |
 |----------|--------|-----|
-| OS / arch | Ubuntu 22.04 / 24.04, amd64 | All major VPS providers default here |
+| OS / arch | Ubuntu 22.04 / 24.04 / 26.04, amd64 | All major VPS providers default here |
 | User | `dev` (no sudo, password locked) | Claude Code should never run as root |
 | Auth | SSH key only | Password login disabled; access gated by SSH login to VPS |
 | Remote shell | SSH + mosh | mosh survives roaming / flaky Wi-Fi; both use the same key |
@@ -135,7 +153,7 @@ Hostinger VPS (Ubuntu 22.04/24.04, amd64)
 | Node.js | nvm (per-user) | Version switching without sudo |
 | Python | pyenv (per-user) | Version switching without sudo |
 | uv | Standalone installer, not pip | Decouples uv from any specific Python |
-| .NET | `dotnet-install.sh --channel 10.0` | Works on 22.04 + 24.04; Microsoft's jammy apt repo doesn't have 10.0 yet |
+| .NET | `dotnet-install.sh --channel 10.0` | Works on 22.04, 24.04, and 26.04 |
 | Docker | Not installed | Excluded by preference |
 
 ## Upgrade
@@ -158,7 +176,7 @@ Removes everything the setup script installed. Prompts before proceeding. Option
 
 ## Requirements
 
-- Ubuntu 22.04 or 24.04
+- Ubuntu 22.04, 24.04, or 26.04
 - Root access (script runs as root, creates non-root `dev` user)
 - SSH access to the VPS
 

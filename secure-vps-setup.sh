@@ -5,18 +5,18 @@
 #   Security  : ClamAV, rkhunter, ufw, fail2ban
 
 #   Terminal  : tmux (mobile-optimized for Termius)
-#   Languages : Go, Java 25, Node.js/TypeScript, Python 3.12, Miniconda
+#   Languages : Go, Java 25, Node.js/TypeScript, Python 3.11, Miniconda
 #   LSP       : gopls, jdtls, pyright, typescript-language-server
 #   Tools     : ripgrep, fd, bat, jq, shellcheck
 #   Dev Tool  : Claude Code (native installer)
-# Tested on: Ubuntu 22.04 / 24.04
+# Tested on: Ubuntu 22.04 / 24.04 / 26.04
 # ============================================================
 
-set -e
+set -euo pipefail
 
 # ── Unattended execution ─────────────────────────────────
 # Keep apt and dpkg fully non-interactive. DEBIAN_FRONTEND alone isn't
-# enough on 24.04 — needrestart prompts "Which services to restart?"
+# enough on newer Ubuntu releases — needrestart prompts "Which services to restart?"
 # during upgrades. Configure it to auto-restart everything.
 export DEBIAN_FRONTEND=noninteractive
 export DEBIAN_PRIORITY=critical
@@ -68,6 +68,14 @@ apt_update_retry() {
 # only source of truth for what's on the machine is this block.
 # ============================================================
 
+# Upgrade behavior: set RUN_UPGRADE=true to run `apt upgrade -y`.
+# Keeping this false reduces runtime during repeated provisioning/re-runs.
+RUN_UPGRADE="${RUN_UPGRADE:-false}"
+
+# Optional AI coding assistants (opt-in).
+# Enable by running: INSTALL_AI_AGENT_TOOLS=true sudo bash secure-vps-setup.sh
+INSTALL_AI_AGENT_TOOLS="${INSTALL_AI_AGENT_TOOLS:-false}"
+
 # Go runtime + tools
 GO_VERSION="go1.26.2"
 GOPLS_VERSION="v0.21.1"
@@ -76,7 +84,7 @@ GOLANGCI_LINT_VERSION="v2.11.4"   # v2.x — module path is /v2/cmd/golangci-lin
 AIR_VERSION="v1.65.1"
 GOIMPORTS_VERSION="v0.44.0"
 GOVULNCHECK_VERSION="v1.2.0"
-CTM_VERSION="v0.0.4"   # RandomCodeSpace/ctm — tmux session manager for Claude Code
+
 
 # JVM
 TEMURIN_PKG="temurin-25-jdk"
@@ -97,10 +105,11 @@ PNPM_VERSION="10.33.0"
 YARN_VERSION="1.22.22"   # Yarn classic; modern yarn is enabled per-project via corepack
 TS_LSP_VERSION="5.1.3"
 NCU_VERSION="21.0.1"
-BUN_VERSION="bun-v1.3.12"   # Passed to bun.sh/install as the pin
+BUN_VERSION="bun-v1.3.14"   # Passed to bun.sh/install as the pin
+AST_GREP_VERSION="0.43.0"
 
 # Python + pip packages
-PYTHON_VERSION="3.14.4"   # 3.15 is still in alpha
+PYTHON_VERSION="3.11.13"   # Stable 3.11 branch
 RUFF_VERSION="0.15.10"
 MYPY_VERSION="1.20.1"
 BLACK_VERSION="26.3.1"
@@ -109,12 +118,25 @@ PYTEST_VERSION="9.0.3"
 HTTPIE_VERSION="3.2.4"
 POETRY_VERSION="2.3.4"
 PIPENV_VERSION="2026.5.2"
-IPYTHON_VERSION="9.12.0"
+IPYTHON_VERSION="9.10.1"
 VIRTUALENV_VERSION="21.2.4"
 PYRIGHT_VERSION="1.1.408"
 UV_VERSION="0.11.7"
 PIPX_VERSION="1.11.1"
 PRECOMMIT_VERSION="4.5.1"
+
+# LLM-focused CLI tooling (Python ecosystem)
+LLM_VERSION="0.31"
+LLM_ANTHROPIC_VERSION="0.25.1"
+LLM_GEMINI_VERSION="0.32"
+LLM_OLLAMA_VERSION="0.16.1"
+
+# Mandatory AI coding CLI
+CODEX_VERSION="0.137.0"
+
+# Optional AI coding assistants
+AIDER_VERSION="0.86.2"
+OPEN_INTERPRETER_VERSION="0.4.3"
 
 # Miniconda
 MINICONDA_VERSION="py312_26.1.1-1"
@@ -125,6 +147,31 @@ RTK_VERSION="v0.36.0"
 # .NET + PowerShell (Microsoft apt repo handles point-level updates)
 DOTNET_LTS_VERSION="10.0"   # Even majors are LTS per Microsoft's policy
 PWSH_NOTE="7.6.x"           # apt 'powershell' package tracks Microsoft's latest 7.x
+
+# Script supports amd64/x86_64 assets only.
+HOST_ARCH="$(uname -m)"
+if [ "$HOST_ARCH" != "x86_64" ] && [ "$HOST_ARCH" != "amd64" ]; then
+    print_error "Unsupported architecture: $HOST_ARCH. This script supports amd64/x86_64 only."
+    exit 1
+fi
+
+GO_ASSET_ARCH="linux-amd64"
+MINICONDA_ASSET_ARCH="Linux-x86_64"
+RTK_DEB_ARCH="amd64"
+JAVA_HOME_ARCH="amd64"
+
+# --- Environment discovery ---
+if [ -r /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+else
+    print_error "/etc/os-release is required to resolve Ubuntu repo URLs"
+    exit 1
+fi
+
+if [ "${VERSION_ID:-}" != "22.04" ] && [ "${VERSION_ID:-}" != "24.04" ] && [ "${VERSION_ID:-}" != "26.04" ]; then
+    print_warning "Unsupported Ubuntu version ${VERSION_ID:-unknown}. The script is tested on 22.04, 24.04, and 26.04."
+fi
 
 # --- Check root ---
 if [ "$EUID" -ne 0 ]; then
@@ -139,10 +186,6 @@ echo "  Security + tmux + Claude Code"
 echo "========================================="
 echo ""
 
-# --- Update system ---
-print_status "Updating system packages..."
-apt_update_retry && apt upgrade -y
-
 # ============================================================
 # Register all third-party apt repos up front so one apt update
 # covers them all. Without this, each install section would trigger
@@ -153,12 +196,63 @@ print_status "Registering third-party apt repos (Adoptium, GitHub CLI, Microsoft
 
 # Prereqs for registering + verifying third-party repos
 apt install -y curl gnupg ca-certificates apt-transport-https \
-    debian-keyring debian-archive-keyring
+    debian-keyring debian-archive-keyring openssh-client
+
+# Helper for explicit, fail-fast downloads used by multiple installers.
+download_file() {
+    local url=$1
+    local target=$2
+
+    curl -fsSL "$url" -o "$target"
+}
+
+is_apt_package_available() {
+    apt-cache show "$1" >/dev/null 2>&1
+}
+
+run_user_remote_script() {
+    local user=$1
+    local url=$2
+    local args=${3:-}
+
+    local installer
+    installer="$(mktemp "/tmp/${user}-installer.XXXXXX.sh")"
+    download_file "$url" "$installer"
+    chown "$user":"$user" "$installer"
+    chmod +x "$installer"
+
+    if [ -n "$args" ]; then
+        su - "$user" -c "bash '$installer' $args"
+    else
+        su - "$user" -c "bash '$installer'"
+    fi
+
+    rm -f "$installer"
+}
+
+install_go_cli_tool() {
+    local binary_name=$1
+    local module=$2
+
+    if command -v "$binary_name" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    print_status "Installing ${binary_name} via go install ${module}@latest..."
+    su - "$DEV_USER" -c "export PATH=/usr/local/go/bin:\$HOME/go/bin:\$PATH && export GOPATH=\$HOME/go && go install ${module}@latest"
+
+    ln -sf "/home/$DEV_USER/go/bin/$binary_name" "/usr/local/bin/$binary_name" 2>/dev/null || true
+}
 
 # Adoptium (Temurin JDK) — provides temurin-<N>-jdk packages
+if [ -z "${VERSION_CODENAME:-}" ]; then
+    print_error "VERSION_CODENAME is missing from /etc/os-release"
+    exit 1
+fi
+
 curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public \
     | gpg --dearmor --yes -o /etc/apt/keyrings/adoptium.gpg
-echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(lsb_release -cs) main" \
+echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb ${VERSION_CODENAME} main" \
     > /etc/apt/sources.list.d/adoptium.list
 
 # GitHub CLI — provides `gh`
@@ -170,9 +264,9 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githu
 
 # Microsoft — provides powershell (the packages-microsoft-prod.deb
 # writes /etc/apt/sources.list.d/microsoft-prod.list itself)
-UBUNTU_VER_ID=$(. /etc/os-release && echo "$VERSION_ID")
-curl -fsSL "https://packages.microsoft.com/config/ubuntu/${UBUNTU_VER_ID}/packages-microsoft-prod.deb" \
-    -o /tmp/packages-microsoft-prod.deb
+UBUNTU_VER_ID="${VERSION_ID:-}"
+download_file "https://packages.microsoft.com/config/ubuntu/${UBUNTU_VER_ID}/packages-microsoft-prod.deb" \
+    /tmp/packages-microsoft-prod.deb
 apt install -y /tmp/packages-microsoft-prod.deb
 rm -f /tmp/packages-microsoft-prod.deb
 
@@ -184,6 +278,11 @@ curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
 
 # One update for all four repos
 apt_update_retry
+
+if [ "$RUN_UPGRADE" = "true" ]; then
+    print_status "Running apt upgrade (RUN_UPGRADE=true)..."
+    apt upgrade -y
+fi
 
 # --- Save pre-existing package list (first run only) ---
 MANIFEST_DIR="/var/lib/vps-setup"
@@ -242,8 +341,8 @@ fi
 mkdir -p /home/$DEV_USER/.ssh
 cat > /home/$DEV_USER/.ssh/config << 'SSHCONF'
 Host *
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
+    StrictHostKeyChecking accept-new
+    UserKnownHostsFile ~/.ssh/known_hosts
     LogLevel ERROR
 
 Host github.com
@@ -256,16 +355,16 @@ chmod 600 /home/$DEV_USER/.ssh/config
 chown -R $DEV_USER:$DEV_USER /home/$DEV_USER/.ssh
 print_status "SSH config written for '$DEV_USER' (includes GitHub)"
 
-# Disable strict host key checking for root (always update)
+# Keep host keys managed for root using accept-new
 mkdir -p /root/.ssh
 cat > /root/.ssh/config << 'SSHCONF'
 Host *
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
+    StrictHostKeyChecking accept-new
+    UserKnownHostsFile /root/.ssh/known_hosts
     LogLevel ERROR
 SSHCONF
 chmod 600 /root/.ssh/config
-print_status "SSH host key checking disabled for root"
+print_status "SSH host key checking is set to accept-new for root and dev"
 
 # Give dev user access to common dev ports (no sudo needed for 1024+)
 # Also allow git, curl, wget without sudo
@@ -301,9 +400,30 @@ clamscan -r -i --exclude-dir="^/sys" --exclude-dir="^/proc" --exclude-dir="^/dev
 CRON
 chmod +x /etc/cron.daily/clamav-scan
 
-# Create scan log directory
+# Create log directory used by periodic scans
 mkdir -p /var/log/clamav
 print_status "ClamAV installed — daily scans enabled for /home, /tmp, /var/www"
+
+# Rotate scan logs to keep disk usage bounded
+cat > /etc/logrotate.d/vps-security <<'LOGROTATE'
+/var/log/clamav/daily-scan.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+    create 0644 root root
+}
+
+/var/log/rkhunter-weekly.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+    create 0644 root root
+}
+LOGROTATE
 
 # ============================================================
 # 2. rkhunter - Rootkit Scanner
@@ -776,10 +896,37 @@ print_status "Installing development toolchains..."
 #   direnv    — per-dir env vars, no repeated export boilerplate
 #   tldr      — simplified man pages (huge token saver vs `man foo`)
 #   entr      — re-run a command on file change (test-loop workflow)
-apt install -y build-essential pkg-config libssl-dev \
-    unzip zip jq tree htop ripgrep fd-find bat \
-    fzf yq git-delta zoxide direnv tldr entr \
-    software-properties-common apt-transport-https ca-certificates
+DEV_APT_PKGS=(
+    build-essential
+    pkg-config
+    libssl-dev
+    unzip
+    zip
+    jq
+    tree
+    htop
+    ripgrep
+    fd-find
+    bat
+    fzf
+    zoxide
+    direnv
+    tldr
+    entr
+    software-properties-common
+    apt-transport-https
+    ca-certificates
+)
+
+for pkg in yq git-delta; do
+    if is_apt_package_available "$pkg"; then
+        DEV_APT_PKGS+=("$pkg")
+    else
+        print_warning "Package '$pkg' is unavailable in apt on this OS; installing via fallback installer later"
+    fi
+done
+
+apt install -y "${DEV_APT_PKGS[@]}"
 
 # Symlink fd and bat (Ubuntu names them differently)
 ln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true
@@ -787,7 +934,7 @@ ln -sf /usr/bin/batcat /usr/local/bin/bat 2>/dev/null || true
 
 # ── Go (pinned tarball from go.dev) ─────────────────────
 print_status "Installing Go ${GO_VERSION}..."
-curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+download_file "https://go.dev/dl/${GO_VERSION}.${GO_ASSET_ARCH}.tar.gz" /tmp/go.tar.gz
 rm -rf /usr/local/go
 tar -C /usr/local -xzf /tmp/go.tar.gz
 rm /tmp/go.tar.gz
@@ -810,11 +957,12 @@ su - "$DEV_USER" -c "export PATH=/usr/local/go/bin:\$HOME/go/bin:\$PATH && expor
     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION} && \
     go install github.com/air-verse/air@${AIR_VERSION} && \
     go install golang.org/x/tools/cmd/goimports@${GOIMPORTS_VERSION} && \
-    go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} && \
-    go install github.com/RandomCodeSpace/ctm@${CTM_VERSION}"
+    go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
 
-print_status "Go ${GO_VERSION} + gopls, delve, golangci-lint, air, goimports, govulncheck, ctm ${CTM_VERSION} installed"
-print_warning "Run 'ctm install' as the dev user to finish ctm shell integration (one-time, interactive)"
+install_go_cli_tool yq github.com/mikefarah/yq/v4
+install_go_cli_tool delta github.com/dandavison/delta/cmd/delta
+
+print_status "Go ${GO_VERSION} + gopls, delve, golangci-lint, air, goimports, govulncheck installed"
 
 # ── Java (Eclipse Temurin via Adoptium, pinned meta-package) ──
 # Adoptium apt repo was registered up top; here we just install.
@@ -855,7 +1003,7 @@ else
     print_warning "Could not fetch jdtls ${JDTLS_VERSION}/latest.txt — skipping"
 fi
 
-JAVA_HOME_PATH="/usr/lib/jvm/${TEMURIN_PKG}-amd64"
+JAVA_HOME_PATH="/usr/lib/jvm/${TEMURIN_PKG}-${JAVA_HOME_ARCH}"
 sed -i '/# --- Java START ---/,/# --- Java END ---/d' /home/$DEV_USER/.bashrc
 cat >> /home/$DEV_USER/.bashrc << JAVAENV
 
@@ -871,7 +1019,7 @@ print_status "Java (${TEMURIN_PKG}) + Maven + Gradle ${GRADLE_VERSION} + jdtls $
 print_status "Installing Node.js ${NODE_VERSION} + TypeScript ${TS_VERSION}..."
 
 # Install/update nvm for dev user (installer clones to the pinned tag)
-su - "$DEV_USER" -c "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh | bash"
+run_user_remote_script "$DEV_USER" "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh"
 
 # Install pinned Node + pinned global packages. npm install -g pkg@VERSION
 # replaces any previously-installed version, so this is safe to rerun.
@@ -886,22 +1034,28 @@ su - "$DEV_USER" -c "export NVM_DIR=\$HOME/.nvm && \
         tsx@${TSX_VERSION} \
         eslint@${ESLINT_VERSION} \
         prettier@${PRETTIER_VERSION} \
+        @openai/codex@${CODEX_VERSION} \
         @types/node@${NODE_TYPES_VERSION} \
         nodemon@${NODEMON_VERSION} \
         pnpm@${PNPM_VERSION} \
         yarn@${YARN_VERSION} \
+        @ast-grep/cli@${AST_GREP_VERSION} \
         typescript-language-server@${TS_LSP_VERSION} \
         npm-check-updates@${NCU_VERSION}"
 
-print_status "Node.js ${NODE_VERSION} + TS ${TS_VERSION} + pnpm ${PNPM_VERSION} + yarn ${YARN_VERSION} + ts-language-server ${TS_LSP_VERSION} + ncu ${NCU_VERSION} installed"
+if [ -x "/home/${DEV_USER}/.nvm/versions/node/v${NODE_VERSION}/bin/codex" ]; then
+    ln -sf "/home/${DEV_USER}/.nvm/versions/node/v${NODE_VERSION}/bin/codex" /usr/local/bin/codex
+    print_status "codex CLI linked to /usr/local/bin/codex for system-wide access"
+fi
+
+print_status "Node.js ${NODE_VERSION} + TS ${TS_VERSION} + @openai/codex ${CODEX_VERSION} + pnpm ${PNPM_VERSION} + yarn ${YARN_VERSION} + ast-grep ${AST_GREP_VERSION} + ts-language-server ${TS_LSP_VERSION} + ncu ${NCU_VERSION} installed"
 
 # ── Bun (alt JS runtime + package manager, installs to ~/.bun) ──
 # bun's installer is idempotent — grep-guarded writes to .bashrc — so
 # rerunning with the same pinned version is a no-op, and bumping
 # BUN_VERSION re-downloads the binary.
 print_status "Installing ${BUN_VERSION}..."
-su - "$DEV_USER" -c "curl -fsSL https://bun.sh/install | bash -s ${BUN_VERSION}" 2>/dev/null || \
-    print_warning "bun install reported a warning — verify with 'bun --version' after reconnecting"
+run_user_remote_script "$DEV_USER" "https://bun.sh/install" "${BUN_VERSION}"
 print_status "${BUN_VERSION} installed (binary at ~/.bun/bin/bun)"
 
 # ── Python (system + pyenv for version management) ─────
@@ -915,9 +1069,9 @@ apt install -y python3 python3-pip python3-venv python3-dev \
 
 # Install or update pyenv for dev user
 if [ -d "/home/$DEV_USER/.pyenv" ]; then
-    su - "$DEV_USER" -c 'export PYENV_ROOT="$HOME/.pyenv" && export PATH="$PYENV_ROOT/bin:$PATH" && pyenv update' || true
+    su - "$DEV_USER" -c "export PYENV_ROOT=\"\$HOME/.pyenv\" && export PATH=\"\$PYENV_ROOT/bin:\$PATH\" && pyenv update" || true
 else
-    su - "$DEV_USER" -c 'curl -fsSL https://pyenv.run | bash'
+    run_user_remote_script "$DEV_USER" "https://pyenv.run"
 fi
 
 sed -i '/# --- Python START ---/,/# --- Python END ---/d' /home/$DEV_USER/.bashrc
@@ -956,20 +1110,36 @@ su - "$DEV_USER" -c "export PYENV_ROOT=\$HOME/.pyenv && \
         virtualenv==${VIRTUALENV_VERSION} \
         pyright==${PYRIGHT_VERSION} \
         pipx==${PIPX_VERSION} \
-        pre-commit==${PRECOMMIT_VERSION}"
+        pre-commit==${PRECOMMIT_VERSION} \
+        llm==${LLM_VERSION} \
+        llm-anthropic==${LLM_ANTHROPIC_VERSION} \
+        llm-gemini==${LLM_GEMINI_VERSION} \
+        llm-ollama==${LLM_OLLAMA_VERSION}"
+
+if [ "$INSTALL_AI_AGENT_TOOLS" = "true" ]; then
+    su - "$DEV_USER" -c "export PYENV_ROOT=\$HOME/.pyenv && \
+        export PATH=\$PYENV_ROOT/bin:\$PATH && \
+        eval \"\$(pyenv init -)\" && \
+        pip install --upgrade \
+            aider-chat==${AIDER_VERSION} \
+            open-interpreter==${OPEN_INTERPRETER_VERSION}"
+    print_status "Optional AI coding tools installed: aider-chat ${AIDER_VERSION}, open-interpreter ${OPEN_INTERPRETER_VERSION}"
+else
+    print_warning "Skipping optional AI coding tools (set INSTALL_AI_AGENT_TOOLS=true to install aider and open-interpreter)"
+fi
 
 # uv is installed as a standalone binary (not via pip) so it isn't
 # coupled to pyenv's active Python. Astral publishes a per-version
 # install.sh at https://astral.sh/uv/<version>/install.sh — that URL is
 # the pinning mechanism. Binary lands in ~/.local/bin/uv (already on
 # PATH via the Claude Code VPS additions block).
-su - "$DEV_USER" -c "curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh"
+run_user_remote_script "$DEV_USER" "https://astral.sh/uv/${UV_VERSION}/install.sh"
 
-print_status "Python ${PYTHON_VERSION} + ruff ${RUFF_VERSION}, mypy ${MYPY_VERSION}, pytest ${PYTEST_VERSION}, poetry ${POETRY_VERSION}, pyright ${PYRIGHT_VERSION}, uv ${UV_VERSION}, pipx ${PIPX_VERSION}, pre-commit ${PRECOMMIT_VERSION} installed (via pyenv)"
+print_status "Python ${PYTHON_VERSION} + ruff ${RUFF_VERSION}, mypy ${MYPY_VERSION}, pytest ${PYTEST_VERSION}, poetry ${POETRY_VERSION}, pyright ${PYRIGHT_VERSION}, uv ${UV_VERSION}, pipx ${PIPX_VERSION}, pre-commit ${PRECOMMIT_VERSION}, llm ${LLM_VERSION} installed (via pyenv)"
 
 # ── Miniconda (system-wide at /opt/miniconda3, pinned installer) ──
 print_status "Installing Miniconda ${MINICONDA_VERSION} (system-wide)..."
-MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-${MINICONDA_VERSION}-Linux-x86_64.sh"
+MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-${MINICONDA_VERSION}-${MINICONDA_ASSET_ARCH}.sh"
 curl -fsSL "$MINICONDA_URL" -o /tmp/miniconda.sh
 # -b batch, -u update (replaces existing install at the prefix)
 bash /tmp/miniconda.sh -b -u -p /opt/miniconda3
@@ -1005,8 +1175,8 @@ apt install -y \
 # auto-resolves any runtime dependencies instead of dpkg erroring out.
 # dpkg handles upgrades cleanly on rerun via the normal Packages db.
 print_status "Installing rtk ${RTK_VERSION}..."
-RTK_DEB_FILE="rtk_${RTK_VERSION#v}-1_amd64.deb"
-curl -fsSL "https://github.com/rtk-ai/rtk/releases/download/${RTK_VERSION}/${RTK_DEB_FILE}" -o /tmp/rtk.deb
+RTK_DEB_FILE="rtk_${RTK_VERSION#v}-1_${RTK_DEB_ARCH}.deb"
+download_file "https://github.com/rtk-ai/rtk/releases/download/${RTK_VERSION}/${RTK_DEB_FILE}" /tmp/rtk.deb
 apt install -y /tmp/rtk.deb
 rm /tmp/rtk.deb
 print_status "rtk ${RTK_VERSION} installed"
@@ -1018,10 +1188,9 @@ apt install -y gh
 print_status "GitHub CLI (gh) installed"
 
 # ── PowerShell (apt) + .NET SDK LTS (official installer) ──
-# PowerShell lives only in Microsoft's apt repo, but .NET 10 isn't in
-# Microsoft's jammy (22.04) feed yet and the noble (24.04) naming lives
-# in Ubuntu's universe — not Microsoft's. To install .NET 10 reliably
-# on BOTH 22.04 and 24.04 we use Microsoft's official dotnet-install.sh
+# PowerShell lives only in Microsoft's apt repo, but Ubuntu naming varies by
+# release (`ubuntu` vs `microsoft` package naming); use Microsoft's official
+# dotnet-install.sh for .NET 10 on 22.04/24.04/26.04 for consistent behavior.
 # which pulls signed binaries from dot.net/v1 and is version-pinned by
 # --channel. PowerShell stays on apt since Ubuntu doesn't ship it.
 print_status "Installing .NET ${DOTNET_LTS_VERSION} LTS + PowerShell..."
@@ -1033,7 +1202,7 @@ apt install -y powershell
 # symlink exposes it system-wide so both root and $DEV_USER get `dotnet`
 # on PATH. Re-running with the same --channel is idempotent (no-op when
 # the latest patch is already installed; updates when a new one drops).
-curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+download_file https://dot.net/v1/dotnet-install.sh /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh
 /tmp/dotnet-install.sh --channel "${DOTNET_LTS_VERSION}" --install-dir /usr/share/dotnet
 rm -f /tmp/dotnet-install.sh
@@ -1209,7 +1378,6 @@ GOLANGCI_LINT_VERSION=${GOLANGCI_LINT_VERSION}
 AIR_VERSION=${AIR_VERSION}
 GOIMPORTS_VERSION=${GOIMPORTS_VERSION}
 GOVULNCHECK_VERSION=${GOVULNCHECK_VERSION}
-CTM_VERSION=${CTM_VERSION}
 TEMURIN_PKG=${TEMURIN_PKG}
 GRADLE_VERSION=${GRADLE_VERSION}
 JDTLS_VERSION=${JDTLS_VERSION}
@@ -1220,7 +1388,16 @@ PNPM_VERSION=${PNPM_VERSION}
 YARN_VERSION=${YARN_VERSION}
 NCU_VERSION=${NCU_VERSION}
 BUN_VERSION=${BUN_VERSION}
+AST_GREP_VERSION=${AST_GREP_VERSION}
 PYTHON_VERSION=${PYTHON_VERSION}
+LLM_VERSION=${LLM_VERSION}
+LLM_ANTHROPIC_VERSION=${LLM_ANTHROPIC_VERSION}
+LLM_GEMINI_VERSION=${LLM_GEMINI_VERSION}
+LLM_OLLAMA_VERSION=${LLM_OLLAMA_VERSION}
+CODEX_VERSION=${CODEX_VERSION}
+AIDER_VERSION=${AIDER_VERSION}
+OPEN_INTERPRETER_VERSION=${OPEN_INTERPRETER_VERSION}
+INSTALL_AI_AGENT_TOOLS=${INSTALL_AI_AGENT_TOOLS}
 RUFF_VERSION=${RUFF_VERSION}
 MYPY_VERSION=${MYPY_VERSION}
 POETRY_VERSION=${POETRY_VERSION}
@@ -1238,7 +1415,7 @@ print_status "Package manifest written to $MANIFEST_DIR/"
 # 8. Claude Code - AI Coding Assistant (installed for 'dev')
 # ============================================================
 print_status "Installing Claude Code for user '$DEV_USER'..."
-su - "$DEV_USER" -c 'curl -fsSL https://claude.ai/install.sh | bash'
+run_user_remote_script "$DEV_USER" https://claude.ai/install.sh
 
 # Set dev user's default shell to bash (ensures Claude Code works)
 chsh -s /bin/bash "$DEV_USER"
@@ -1270,10 +1447,14 @@ echo "  Shell      : /bin/bash"
 echo ""
 echo "  DEV TOOLCHAINS (all pinned — bump in VERSIONS block to upgrade)"
 echo "  ─────────────────────────────────────────"
-echo "  Go         : ${GO_VERSION}  (gopls, dlv, golangci-lint, air, goimports, govulncheck, ctm ${CTM_VERSION})"
+echo "  Go         : ${GO_VERSION}  (gopls, dlv, golangci-lint, air, goimports, govulncheck)"
 echo "  Java       : ${TEMURIN_PKG}  (maven, gradle ${GRADLE_VERSION}, jdtls ${JDTLS_VERSION})"
-echo "  Node.js    : ${NODE_VERSION}  (ts ${TS_VERSION}, tsx, pnpm ${PNPM_VERSION}, yarn, ts-language-server, ncu, ${BUN_VERSION})"
+echo "  Node.js    : ${NODE_VERSION}  (ts ${TS_VERSION}, tsx, @openai/codex ${CODEX_VERSION}, pnpm ${PNPM_VERSION}, yarn, ts-language-server, ncu, ${BUN_VERSION})"
 echo "  Python     : ${PYTHON_VERSION}  (ruff ${RUFF_VERSION}, mypy, pytest, poetry, pyright, uv ${UV_VERSION}, pipx, pre-commit)"
+echo "  LLM tools  : llm ${LLM_VERSION}, llm-anthropic ${LLM_ANTHROPIC_VERSION}, llm-gemini ${LLM_GEMINI_VERSION}, llm-ollama ${LLM_OLLAMA_VERSION}, codex ${CODEX_VERSION} (mandatory)"
+if [ "$INSTALL_AI_AGENT_TOOLS" = "true" ]; then
+    echo "  AI agents  : aider-chat ${AIDER_VERSION}, open-interpreter ${OPEN_INTERPRETER_VERSION}"
+fi
 echo "  Miniconda  : ${MINICONDA_VERSION}  (/opt/miniconda3, auto_activate_base=false)"
 echo "  .NET LTS   : ${DOTNET_LTS_VERSION}  (via dotnet-install.sh, /usr/share/dotnet)"
 echo "  PowerShell : pwsh (tracks Microsoft apt, latest 7.x)"
@@ -1314,8 +1495,8 @@ echo "  4. Set up GitHub + SSH signing:"
 echo "     setup-github"
 echo "     (GitHub auth → git identity → SSH key → SSH commit signing)"
 echo ""
-echo "  5. Finish ctm (Claude Tmux Manager) shell integration:"
-echo "     ctm install"
+echo "  5. Log in and test a first Claude session"
+echo "     claude"
 echo ""
 echo "  Your SSH public key:"
 echo "     cat ~/.ssh/id_ed25519.pub"
